@@ -31,18 +31,39 @@ export default function Challenges() {
 
         if (progressError) throw progressError;
 
-        // Fetch all completions to count how many finished each challenge
-        const { data: allCompletions, error: completionsError } = await supabase
+        // Fetch all progress with profile info for leaderboard
+        const { data: allProgress, error: allProgressError } = await supabase
           .from('user_challenge_progress')
-          .select('challenge_id')
-          .eq('completed', true);
+          .select(`
+            challenge_id,
+            progress_hours,
+            completed,
+            profiles (
+              id,
+              username,
+              avatar_url
+            )
+          `)
+          .order('progress_hours', { ascending: false });
 
-        if (completionsError) throw completionsError;
+        if (allProgressError) throw allProgressError;
 
-        // Calculate completions per challenge
+        // Group progress by challenge and calculate counts
         const completionCounts: Record<string, number> = {};
-        allCompletions?.forEach(c => {
-          completionCounts[c.challenge_id] = (completionCounts[c.challenge_id] || 0) + 1;
+        const topParticipants: Record<string, any[]> = {};
+
+        allProgress?.forEach(p => {
+          if (p.completed) {
+            completionCounts[p.challenge_id] = (completionCounts[p.challenge_id] || 0) + 1;
+          }
+          
+          if (!topParticipants[p.challenge_id]) {
+            topParticipants[p.challenge_id] = [];
+          }
+          
+          if (topParticipants[p.challenge_id].length < 3) {
+            topParticipants[p.challenge_id].push(p);
+          }
         });
 
         // Merge data
@@ -52,6 +73,7 @@ export default function Challenges() {
             ...challenge,
             myProgress,
             completedCount: completionCounts[challenge.id] || 0,
+            topParticipants: topParticipants[challenge.id] || [],
             hasJoined: !!myProgress
           };
         }) || [];
@@ -125,6 +147,32 @@ export default function Challenges() {
         <p className="text-slate-400 text-sm mt-1">Push your limits, earn stars, and climb the leaderboard.</p>
       </div>
 
+      {/* Global Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="glass-panel p-4 rounded-2xl border-indigo-500/20">
+          <p className="text-[10px] uppercase font-bold text-indigo-400 tracking-wider mb-1">Active Challenges</p>
+          <p className="text-2xl font-bold text-white">{challenges.length}</p>
+        </div>
+        <div className="glass-panel p-4 rounded-2xl border-emerald-500/20">
+          <p className="text-[10px] uppercase font-bold text-emerald-400 tracking-wider mb-1">Total Completions</p>
+          <p className="text-2xl font-bold text-white">
+            {challenges.reduce((acc, c) => acc + (c.completedCount || 0), 0)}
+          </p>
+        </div>
+        <div className="glass-panel p-4 rounded-2xl border-amber-500/20">
+          <p className="text-[10px] uppercase font-bold text-amber-400 tracking-wider mb-1">Stars Up For Grabs</p>
+          <p className="text-2xl font-bold text-white">
+            {challenges.reduce((acc, c) => acc + (c.reward_stars || 0), 0)}
+          </p>
+        </div>
+        <div className="glass-panel p-4 rounded-2xl border-purple-500/20">
+          <p className="text-[10px] uppercase font-bold text-purple-400 tracking-wider mb-1">Your Joined</p>
+          <p className="text-2xl font-bold text-white">
+            {challenges.filter(c => c.hasJoined).length}
+          </p>
+        </div>
+      </div>
+
       {challenges.length === 0 ? (
         <div className="glass-panel p-12 rounded-2xl text-center flex flex-col items-center">
           <Target className="w-16 h-16 text-slate-600 mb-4" />
@@ -151,7 +199,16 @@ export default function Challenges() {
                 
                 <div className="flex justify-between items-start mb-4">
                   <div>
-                    <h3 className="text-xl font-bold text-white">{challenge.title}</h3>
+                    <div className="flex items-center gap-2 mb-1">
+                      <h3 className="text-xl font-bold text-white">{challenge.title}</h3>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${
+                        challenge.target_hours >= 50 ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' :
+                        challenge.target_hours >= 20 ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30' :
+                        'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                      }`}>
+                        {challenge.target_hours >= 50 ? 'Elite' : challenge.target_hours >= 20 ? 'Pro' : 'Sprint'}
+                      </span>
+                    </div>
                     <p className="text-sm text-slate-400 mt-1 line-clamp-2">{challenge.description}</p>
                   </div>
                   <div className="flex items-center gap-1 bg-yellow-500/10 text-yellow-400 px-3 py-1.5 rounded-lg font-bold text-sm border border-yellow-500/20 whitespace-nowrap">
@@ -160,7 +217,7 @@ export default function Challenges() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-4 text-xs font-medium text-slate-400 mb-6">
+                <div className="flex items-center gap-4 text-xs font-medium text-slate-400 mb-4">
                   <div className="flex items-center gap-1.5">
                     <Target size={14} className="text-indigo-400" />
                     {challenge.target_hours} Hours Goal
@@ -171,7 +228,49 @@ export default function Challenges() {
                   </div>
                   <div className="flex items-center gap-1.5">
                     <Clock size={14} className="text-amber-400" />
-                    Ends {new Date(challenge.end_date).toLocaleDateString()}
+                    {(() => {
+                      const end = new Date(challenge.end_date);
+                      const now = new Date();
+                      const diff = end.getTime() - now.getTime();
+                      const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
+                      return days > 0 ? `${days} days left` : 'Ended';
+                    })()}
+                  </div>
+                </div>
+
+                {/* Top Participants Leaderboard */}
+                <div className="mb-6 p-3 bg-slate-900/40 rounded-xl border border-slate-800/50">
+                  <p className="text-[10px] uppercase font-bold text-slate-500 tracking-wider mb-2 px-1">Top Participants</p>
+                  <div className="space-y-2">
+                    {challenge.topParticipants?.length > 0 ? (
+                      challenge.topParticipants.map((participant: any, pIndex: number) => (
+                        <div key={participant.profiles?.id || pIndex} className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                              pIndex === 0 ? 'bg-yellow-500 text-black' : 
+                              pIndex === 1 ? 'bg-slate-300 text-black' : 
+                              'bg-amber-700 text-white'
+                            }`}>
+                              {pIndex + 1}
+                            </div>
+                            <img 
+                              src={participant.profiles?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${participant.profiles?.username || 'user'}`}
+                              alt={participant.profiles?.username || 'User'}
+                              className="w-6 h-6 rounded-full border border-slate-700"
+                              referrerPolicy="no-referrer"
+                            />
+                            <span className="text-xs text-slate-300 font-medium truncate max-w-[80px]">
+                              {participant.profiles?.username || 'User'}
+                            </span>
+                          </div>
+                          <span className="text-[10px] font-mono text-indigo-400">
+                            {Number(participant.progress_hours).toFixed(1)}h
+                          </span>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-[10px] text-slate-600 italic px-1">No participants yet</p>
+                    )}
                   </div>
                 </div>
 
@@ -181,7 +280,7 @@ export default function Challenges() {
                       <div className="flex justify-between text-sm font-medium">
                         <span className="text-slate-300">Your Progress</span>
                         <span className={challenge.myProgress?.completed ? "text-emerald-400" : "text-indigo-400"}>
-                          {challenge.myProgress?.progress_hours || 0} / {challenge.target_hours} hrs ({progressPercent}%)
+                          {Number(challenge.myProgress?.progress_hours || 0).toFixed(1)} / {challenge.target_hours} hrs ({progressPercent}%)
                         </span>
                       </div>
                       <div className="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden">

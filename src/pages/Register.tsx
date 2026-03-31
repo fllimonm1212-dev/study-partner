@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { BookOpen, Loader2 } from 'lucide-react';
@@ -43,11 +43,16 @@ export default function Register() {
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col justify-center py-12 sm:px-6 lg:px-8 font-sans">
       <div className="sm:mx-auto sm:w-full sm:max-w-md flex flex-col items-center">
-        <div className="w-12 h-12 rounded-xl bg-indigo-500/20 flex items-center justify-center border border-indigo-500/30 mb-4">
-          <BookOpen size={24} className="text-indigo-400" />
+        <div className="w-14 h-14 rounded-2xl bg-white flex items-center justify-center shadow-xl shadow-indigo-500/20 border border-white/10 mb-6 overflow-hidden">
+          <img 
+            src="https://raw.githubusercontent.com/stackblitz/stackblitz-images/main/study-partner-logo.png" 
+            alt="Study Partner Logo" 
+            className="w-full h-full object-cover"
+            referrerPolicy="no-referrer"
+          />
         </div>
-        <h2 className="text-center text-3xl font-extrabold text-white tracking-tight">
-          Create an account
+        <h2 className="text-center text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400 tracking-tight">
+          Join Study Partner
         </h2>
         <p className="mt-2 text-center text-sm text-slate-400">
           Or{' '}

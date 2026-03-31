@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { Send, Image as ImageIcon, FileText, ArrowLeft, MessageSquare } from 'lucide-react';
 import { cn } from '../components/Sidebar';
+import { toast } from 'sonner';
 
 export default function DirectMessage() {
   const { id } = useParams<{ id: string }>(); // friend's user ID
@@ -14,7 +15,9 @@ export default function DirectMessage() {
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!id || !user) return;
@@ -64,15 +67,23 @@ export default function DirectMessage() {
     fetchFriendData();
 
     // Subscriptions
-    const messagesSub = supabase.channel(`public:personal_messages:${user.id}:${id}`)
+    const messagesSub = supabase.channel(`direct_messages:${user.id}:${id}`)
       .on('postgres_changes', { 
         event: 'INSERT', 
         schema: 'public', 
-        table: 'personal_messages',
-        filter: `receiver_id=eq.${user.id}`
+        table: 'personal_messages'
       }, (payload) => {
-        if (payload.new.sender_id === id) {
-          setMessages(prev => [...prev, payload.new]);
+        const newMessage = payload.new;
+        // Check if this message belongs to this conversation
+        const isFromMe = newMessage.sender_id === user.id && newMessage.receiver_id === id;
+        const isToMe = newMessage.sender_id === id && newMessage.receiver_id === user.id;
+        
+        if (isFromMe || isToMe) {
+          setMessages(prev => {
+            // Avoid duplicates from optimistic updates
+            if (prev.some(m => m.id === newMessage.id)) return prev;
+            return [...prev, newMessage];
+          });
         }
       })
       .subscribe();
@@ -85,6 +96,53 @@ export default function DirectMessage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user || !id) return;
+
+    setUploading(true);
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${user.id}/${Date.now()}.${fileExt}`;
+      const filePath = `${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('messages')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('messages')
+        .getPublicUrl(filePath);
+
+      const type = file.type.startsWith('image/') ? 'image' : 'pdf';
+
+      const { data, error: msgError } = await supabase
+        .from('personal_messages')
+        .insert({
+          sender_id: user.id,
+          receiver_id: id,
+          content: file.name,
+          type,
+          file_url: publicUrl
+        })
+        .select()
+        .single();
+
+      if (msgError) throw msgError;
+      
+      // Optimistic update handled by subscription or manually
+      setMessages(prev => [...prev, data]);
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      toast.error('Failed to upload file');
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -142,7 +200,7 @@ export default function DirectMessage() {
       {/* Header */}
       <div className="flex items-center gap-4 mb-6">
         <button 
-          onClick={() => navigate('/friends')}
+          onClick={() => navigate('/messages')}
           className="p-2 hover:bg-slate-800 rounded-xl text-slate-400 hover:text-white transition-colors"
         >
           <ArrowLeft size={20} />
@@ -196,12 +254,37 @@ export default function DirectMessage() {
                     )}
                     
                     <div className={cn(
-                      "px-4 py-2 rounded-2xl",
+                      "px-4 py-2 rounded-2xl overflow-hidden",
                       isMe 
                         ? "bg-indigo-500 text-white rounded-br-sm" 
                         : "bg-slate-800 text-slate-200 rounded-bl-sm border border-slate-700"
                     )}>
                       {msg.type === 'text' && <p className="text-sm whitespace-pre-wrap break-words">{msg.content}</p>}
+                      {msg.type === 'image' && (
+                        <div className="space-y-2">
+                          <img 
+                            src={msg.file_url} 
+                            alt="Sent image" 
+                            className="max-w-full rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
+                            onClick={() => window.open(msg.file_url, '_blank')}
+                          />
+                          {msg.content && <p className="text-xs opacity-70">{msg.content}</p>}
+                        </div>
+                      )}
+                      {msg.type === 'pdf' && (
+                        <a 
+                          href={msg.file_url} 
+                          target="_blank" 
+                          rel="noreferrer"
+                          className="flex items-center gap-3 p-2 bg-slate-900/50 rounded-lg hover:bg-slate-900 transition-colors"
+                        >
+                          <FileText className="text-indigo-400" size={24} />
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate">{msg.content}</p>
+                            <p className="text-[10px] opacity-50 uppercase">PDF Document</p>
+                          </div>
+                        </a>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -214,11 +297,20 @@ export default function DirectMessage() {
         <div className="p-4 bg-slate-900/50 border-t border-slate-800">
           <form onSubmit={handleSendMessage} className="flex items-end gap-2">
             <div className="flex gap-2">
-              <button type="button" className="p-3 text-slate-400 hover:text-indigo-400 hover:bg-indigo-500/10 rounded-xl transition-colors">
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                onChange={handleFileUpload} 
+                className="hidden" 
+                accept="image/*,application/pdf"
+              />
+              <button 
+                type="button" 
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                className="p-3 text-slate-400 hover:text-indigo-400 hover:bg-indigo-500/10 rounded-xl transition-colors disabled:opacity-50"
+              >
                 <ImageIcon size={20} />
-              </button>
-              <button type="button" className="p-3 text-slate-400 hover:text-indigo-400 hover:bg-indigo-500/10 rounded-xl transition-colors">
-                <FileText size={20} />
               </button>
             </div>
             <div className="flex-1 relative">
@@ -231,13 +323,19 @@ export default function DirectMessage() {
               />
               <button 
                 type="submit"
-                disabled={!newMessage.trim()}
+                disabled={!newMessage.trim() || uploading}
                 className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-indigo-400 hover:text-indigo-300 disabled:opacity-50 disabled:hover:text-indigo-400 transition-colors"
               >
                 <Send size={18} />
               </button>
             </div>
           </form>
+          {uploading && (
+            <div className="mt-2 text-xs text-indigo-400 flex items-center gap-2">
+              <div className="animate-spin rounded-full h-3 w-3 border-t-2 border-indigo-500"></div>
+              Uploading file...
+            </div>
+          )}
         </div>
       </div>
     </div>

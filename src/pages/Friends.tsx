@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
-import { Users, UserPlus, Search, Check, X, MessageSquare, Clock } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Users, UserPlus, Search, Check, X, MessageSquare, Clock, Star } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { cn } from '../components/Sidebar';
+import { toast } from 'sonner';
 
 export default function Friends() {
   const { user } = useAuth();
@@ -12,7 +13,8 @@ export default function Friends() {
   const [activeTab, setActiveTab] = useState<'friends' | 'requests' | 'find'>('friends');
   
   const [friends, setFriends] = useState<any[]>([]);
-  const [requests, setRequests] = useState<any[]>([]);
+  const [incomingRequests, setIncomingRequests] = useState<any[]>([]);
+  const [outgoingRequests, setOutgoingRequests] = useState<any[]>([]);
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
@@ -38,15 +40,16 @@ export default function Friends() {
         .from('friend_requests')
         .select(`
           *,
-          sender:sender_id (id, full_name, avatar_url, total_stars),
-          receiver:receiver_id (id, full_name, avatar_url, total_stars)
+          sender:sender_id (id, full_name, avatar_url, total_stars, class_id),
+          receiver:receiver_id (id, full_name, avatar_url, total_stars, class_id)
         `)
         .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`);
 
       if (requestsError) throw requestsError;
 
       const accepted = requestsData?.filter(r => r.status === 'accepted') || [];
-      const pending = requestsData?.filter(r => r.status === 'pending' && r.receiver_id === user.id) || [];
+      const incoming = requestsData?.filter(r => r.status === 'pending' && r.receiver_id === user.id) || [];
+      const outgoing = requestsData?.filter(r => r.status === 'pending' && r.sender_id === user.id) || [];
 
       // Map accepted requests to friend profiles
       const friendsList = accepted.map(r => {
@@ -55,9 +58,11 @@ export default function Friends() {
       });
 
       setFriends(friendsList);
-      setRequests(pending);
+      setIncomingRequests(incoming);
+      setOutgoingRequests(outgoing);
     } catch (error) {
       console.error('Error fetching friends data:', error);
+      toast.error('Failed to fetch friends data');
     } finally {
       setLoading(false);
     }
@@ -91,21 +96,39 @@ export default function Friends() {
       setSearchResults(filteredResults);
     } catch (error) {
       console.error('Error searching users:', error);
+      toast.error('Failed to search users');
     }
   };
 
   const sendRequest = async (receiverId: string) => {
     if (!user) return;
     try {
+      // Use upsert to handle re-sending rejected requests
       const { error } = await supabase
         .from('friend_requests')
-        .insert({ sender_id: user.id, receiver_id: receiverId });
+        .upsert(
+          { 
+            sender_id: user.id, 
+            receiver_id: receiverId, 
+            status: 'pending',
+            created_at: new Date().toISOString()
+          },
+          { onConflict: 'sender_id,receiver_id' }
+        );
 
-      if (error) throw error;
+      if (error) {
+        if (error.code === '42P01') {
+          throw new Error('Database table "friend_requests" is missing. Please run the SQL setup.');
+        }
+        throw error;
+      }
+
+      toast.success('Friend request sent!');
       setSearchResults(prev => prev.filter(p => p.id !== receiverId));
       fetchFriendsData(); // Refresh to update state
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error sending request:', error);
+      toast.error(error.message || 'Failed to send friend request');
     }
   };
 
@@ -117,9 +140,11 @@ export default function Friends() {
         .eq('id', requestId);
 
       if (error) throw error;
+      toast.success(`Request ${status === 'accepted' ? 'accepted' : 'rejected'}`);
       fetchFriendsData();
     } catch (error) {
       console.error('Error responding to request:', error);
+      toast.error('Failed to respond to request');
     }
   };
 
@@ -143,7 +168,7 @@ export default function Friends() {
       <div className="flex items-center gap-2 border-b border-slate-800 pb-4">
         {[
           { id: 'friends', label: `My Friends (${friends.length})` },
-          { id: 'requests', label: `Requests ${requests.length > 0 ? `(${requests.length})` : ''}` },
+          { id: 'requests', label: `Requests ${incomingRequests.length > 0 ? `(${incomingRequests.length})` : ''}` },
           { id: 'find', label: 'Find Students' }
         ].map(tab => (
           <button
@@ -199,7 +224,12 @@ export default function Friends() {
                         </div>
                       )}
                       <div>
-                        <h3 className="font-medium text-white">{friend.full_name}</h3>
+                        <h3 
+                          className="font-medium text-white hover:text-indigo-400 cursor-pointer transition-colors"
+                          onClick={() => navigate(`/friends/${friend.id}/profile`)}
+                        >
+                          {friend.full_name}
+                        </h3>
                         <p className="text-sm text-amber-400">{friend.total_stars || 0} ⭐</p>
                       </div>
                     </div>
@@ -218,43 +248,122 @@ export default function Friends() {
 
           {/* REQUESTS TAB */}
           {activeTab === 'requests' && (
-            requests.length === 0 ? (
+            incomingRequests.length === 0 && outgoingRequests.length === 0 ? (
               <div className="text-center py-12 text-slate-400">
                 No pending friend requests.
               </div>
             ) : (
-              <div className="space-y-4">
-                {requests.map(request => (
-                  <div key={request.id} className="glass-panel p-4 rounded-xl flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      {request.sender.avatar_url ? (
-                        <img src={request.sender.avatar_url} alt="" className="w-12 h-12 rounded-full object-cover border border-slate-700" />
-                      ) : (
-                        <div className="w-12 h-12 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold text-lg">
-                          {(request.sender.full_name || 'U').substring(0, 2).toUpperCase()}
+              <div className="space-y-8">
+                {incomingRequests.length > 0 && (
+                  <div className="space-y-4">
+                    <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wider">Incoming Requests</h3>
+                    {incomingRequests.map(request => (
+                      <div key={request.id} className="glass-panel p-4 rounded-xl flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          {request.sender.avatar_url ? (
+                            <img src={request.sender.avatar_url} alt="" className="w-12 h-12 rounded-full object-cover border border-slate-700" />
+                          ) : (
+                            <div className="w-12 h-12 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold text-lg">
+                              {(request.sender.full_name || 'U').substring(0, 2).toUpperCase()}
+                            </div>
+                          )}
+                          <div>
+                            <h3 
+                              className="font-medium text-white hover:text-indigo-400 cursor-pointer transition-colors"
+                              onClick={() => navigate(`/friends/${request.sender.id}/profile`)}
+                            >
+                              {request.sender.full_name}
+                            </h3>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className="text-[10px] text-amber-400 font-bold flex items-center gap-0.5">
+                                {request.sender.total_stars || 0} <Star size={10} fill="currentColor" />
+                              </span>
+                              {(request.sender as any).class_id && (
+                                <>
+                                  <span className="text-[10px] text-slate-500">•</span>
+                                  <span className="text-[10px] text-indigo-400 font-medium">Class {(request.sender as any).class_id}</span>
+                                </>
+                              )}
+                              <span className="text-[10px] text-slate-500">•</span>
+                              <span className="text-[10px] text-slate-400">Wants to be your friend</span>
+                            </div>
+                          </div>
                         </div>
-                      )}
-                      <div>
-                        <h3 className="font-medium text-white">{request.sender.full_name}</h3>
-                        <p className="text-sm text-slate-400">Wants to be your friend</p>
+                        <div className="flex items-center gap-2">
+                          <button 
+                            onClick={() => respondToRequest(request.id, 'accepted')}
+                            className="px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg transition-colors flex items-center gap-1 text-sm font-medium"
+                          >
+                            <Check size={16} /> Accept
+                          </button>
+                          <button 
+                            onClick={() => respondToRequest(request.id, 'rejected')}
+                            className="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-lg transition-colors flex items-center gap-1 text-sm font-medium"
+                          >
+                            <X size={16} /> Decline
+                          </button>
+                        </div>
                       </div>
+                    ))}
+                  </div>
+                )}
+
+                {incomingRequests.length > 0 && outgoingRequests.length > 0 && (
+                  <div className="relative py-4">
+                    <div className="absolute inset-0 flex items-center">
+                      <div className="w-full border-t border-slate-800"></div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <button 
-                        onClick={() => respondToRequest(request.id, 'accepted')}
-                        className="px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg transition-colors flex items-center gap-1 text-sm font-medium"
-                      >
-                        <Check size={16} /> Accept
-                      </button>
-                      <button 
-                        onClick={() => respondToRequest(request.id, 'rejected')}
-                        className="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-lg transition-colors flex items-center gap-1 text-sm font-medium"
-                      >
-                        <X size={16} /> Decline
-                      </button>
+                    <div className="relative flex justify-center">
+                      <span className="bg-slate-950 px-3 text-xs font-medium text-slate-600 uppercase tracking-widest">Pending Outgoing</span>
                     </div>
                   </div>
-                ))}
+                )}
+
+                {outgoingRequests.length > 0 && (
+                  <div className="space-y-4">
+                    <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wider">Sent Requests</h3>
+                    {outgoingRequests.map(request => (
+                      <div key={request.id} className="glass-panel p-4 rounded-xl flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          {request.receiver.avatar_url ? (
+                            <img src={request.receiver.avatar_url} alt="" className="w-12 h-12 rounded-full object-cover border border-slate-700" />
+                          ) : (
+                            <div className="w-12 h-12 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold text-lg">
+                              {(request.receiver.full_name || 'U').substring(0, 2).toUpperCase()}
+                            </div>
+                          )}
+                          <div>
+                            <h3 
+                              className="font-medium text-white hover:text-indigo-400 cursor-pointer transition-colors"
+                              onClick={() => navigate(`/friends/${request.receiver.id}/profile`)}
+                            >
+                              {request.receiver.full_name}
+                            </h3>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className="text-[10px] text-amber-400 font-bold flex items-center gap-0.5">
+                                {request.receiver.total_stars || 0} <Star size={10} fill="currentColor" />
+                              </span>
+                              {(request.receiver as any).class_id && (
+                                <>
+                                  <span className="text-[10px] text-slate-500">•</span>
+                                  <span className="text-[10px] text-indigo-400 font-medium">Class {(request.receiver as any).class_id}</span>
+                                </>
+                              )}
+                              <span className="text-[10px] text-slate-500">•</span>
+                              <span className="text-[10px] text-slate-400">Waiting for response...</span>
+                            </div>
+                          </div>
+                        </div>
+                        <button 
+                          onClick={() => respondToRequest(request.id, 'rejected')}
+                          className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition-colors flex items-center gap-1 text-sm font-medium border border-slate-700"
+                        >
+                          <X size={16} /> Cancel
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )
           )}
@@ -287,7 +396,12 @@ export default function Friends() {
                           </div>
                         )}
                         <div>
-                          <h3 className="font-medium text-white">{result.full_name}</h3>
+                          <h3 
+                            className="font-medium text-white hover:text-indigo-400 cursor-pointer transition-colors"
+                            onClick={() => navigate(`/friends/${result.id}/profile`)}
+                          >
+                            {result.full_name}
+                          </h3>
                           <p className="text-sm text-amber-400">{result.total_stars || 0} ⭐</p>
                         </div>
                       </div>
