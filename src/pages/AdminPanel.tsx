@@ -18,6 +18,7 @@ export default function AdminPanel() {
   const [examsList, setExamsList] = useState<any[]>([]);
   const [feedbackList, setFeedbackList] = useState<any[]>([]);
   const [submissionsList, setSubmissionsList] = useState<any[]>([]);
+  const [feedbackFilter, setFeedbackFilter] = useState<'all' | 'complain' | 'feature_request'>('all');
   const [stats, setStats] = useState({ totalUsers: 0, totalHours: 0, totalSessions: 0 });
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -106,7 +107,8 @@ export default function AdminPanel() {
               profiles:user_id (full_name, email),
               exams:exam_id (title, total_points)
             `)
-            .order('submitted_at', { ascending: false });
+            .eq('status', 'completed')
+            .order('completed_at', { ascending: false });
           
           if (!subError) {
             setSubmissionsList(subData || []);
@@ -1028,7 +1030,13 @@ export default function AdminPanel() {
                                 </div>
                               </td>
                               <td className="px-6 py-4 text-slate-400 text-sm">
-                                {new Date(sub.submitted_at).toLocaleDateString()} {new Date(sub.submitted_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                {sub.completed_at ? (
+                                  <>
+                                    {new Date(sub.completed_at).toLocaleDateString()} {new Date(sub.completed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  </>
+                                ) : (
+                                  'N/A'
+                                )}
                               </td>
                             </tr>
                           );
@@ -1052,10 +1060,41 @@ export default function AdminPanel() {
                     <MessageSquareWarning size={20} className="text-indigo-400" />
                     User Feedback & Requests
                   </h2>
+                  <div className="flex items-center gap-2 bg-slate-900/50 p-1 rounded-lg border border-slate-800">
+                    <button
+                      onClick={() => setFeedbackFilter('all')}
+                      className={cn(
+                        "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+                        feedbackFilter === 'all' ? "bg-indigo-500 text-white" : "text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+                      )}
+                    >
+                      All
+                    </button>
+                    <button
+                      onClick={() => setFeedbackFilter('complain')}
+                      className={cn(
+                        "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+                        feedbackFilter === 'complain' ? "bg-rose-500 text-white" : "text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+                      )}
+                    >
+                      Complains
+                    </button>
+                    <button
+                      onClick={() => setFeedbackFilter('feature_request')}
+                      className={cn(
+                        "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+                        feedbackFilter === 'feature_request' ? "bg-emerald-500 text-white" : "text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+                      )}
+                    >
+                      Feature Requests
+                    </button>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 gap-4">
-                  {feedbackList.map((item) => (
+                  {feedbackList
+                    .filter(item => feedbackFilter === 'all' || item.type === feedbackFilter)
+                    .map((item) => (
                     <motion.div
                       key={item.id}
                       initial={{ opacity: 0, y: 10 }}
@@ -1158,10 +1197,10 @@ export default function AdminPanel() {
                     </motion.div>
                   ))}
                   
-                  {feedbackList.length === 0 && (
+                  {feedbackList.filter(item => feedbackFilter === 'all' || item.type === feedbackFilter).length === 0 && (
                     <div className="text-center py-12 bg-slate-900/20 rounded-xl border border-slate-800/50">
                       <MessageSquareWarning size={48} className="mx-auto text-slate-600 mb-4" />
-                      <p className="text-slate-400">No feedback or requests yet.</p>
+                      <p className="text-slate-400">No feedback or requests found for this filter.</p>
                     </div>
                   )}
                 </div>

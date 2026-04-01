@@ -33,7 +33,7 @@ export default function Login() {
       <div className="sm:mx-auto sm:w-full sm:max-w-md flex flex-col items-center">
         <div className="w-14 h-14 rounded-2xl bg-white flex items-center justify-center shadow-xl shadow-indigo-500/20 border border-white/10 mb-6 overflow-hidden">
           <img 
-            src="https://raw.githubusercontent.com/stackblitz/stackblitz-images/main/study-partner-logo.png" 
+            src="/logo.png" 
             alt="Study Partner Logo" 
             className="w-full h-full object-cover"
             referrerPolicy="no-referrer"

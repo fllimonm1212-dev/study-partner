@@ -64,6 +64,8 @@ export default function Exams() {
             id,
             score,
             total_points,
+            status,
+            completed_at,
             created_at,
             user_id,
             profiles (
@@ -76,8 +78,9 @@ export default function Exams() {
             )
           `)
           .eq('exam_id', selectedExamId)
+          .eq('status', 'completed')
           .order('score', { ascending: false })
-          .order('created_at', { ascending: true }); // Tie-breaker: whoever submitted first
+          .order('completed_at', { ascending: true }); // Tie-breaker: whoever submitted first
 
         if (error && error.code !== '42P01') throw error;
         setLeaderboardData(data || []);
@@ -349,7 +352,7 @@ export default function Exams() {
               <div className="flex items-center justify-center py-12">
                 <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-indigo-500"></div>
               </div>
-            ) : leaderboardData.filter(s => s.status === 'completed').length === 0 ? (
+            ) : leaderboardData.length === 0 ? (
               <div className="text-center py-12">
                 <Trophy className="w-16 h-16 text-slate-600 mb-4 mx-auto" />
                 <h3 className="text-lg font-medium text-white">No completed submissions yet</h3>
@@ -369,14 +372,13 @@ export default function Exams() {
                   </thead>
                   <tbody className="text-sm">
                     {leaderboardData
-                      .filter(s => s.status === 'completed')
                       .map((submission, index) => {
                       const profile = submission.profiles || {};
                       const name = profile.full_name || profile.email?.split('@')[0] || 'Unknown Student';
                       const initials = name.substring(0, 2).toUpperCase();
                       const isMe = submission.user_id === user?.id;
                       const percentage = ((submission.score / submission.total_points) * 100).toFixed(0);
-                      const date = new Date(submission.created_at).toLocaleDateString('en-US', {
+                      const date = new Date(submission.completed_at || submission.created_at).toLocaleDateString('en-US', {
                         month: 'short',
                         day: 'numeric',
                         hour: '2-digit',

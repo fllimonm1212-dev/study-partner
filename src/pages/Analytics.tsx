@@ -106,7 +106,7 @@ export default function Analytics() {
         prevQuery,
         supabase.from('tasks').select('*').eq('user_id', user?.id),
         supabase.from('profiles').select('total_stars, current_streak').eq('id', user?.id).single(),
-        supabase.from('exam_submissions').select('*, exams(title, total_points)').eq('user_id', user?.id).order('submitted_at', { ascending: true })
+        supabase.from('exam_submissions').select('*, exams(title, total_points)').eq('user_id', user?.id).eq('status', 'completed').order('completed_at', { ascending: true })
       ]);
 
       if (currentRes.error) throw currentRes.error;
@@ -446,7 +446,7 @@ export default function Analytics() {
       return {
         name: sub.exams?.title || 'Exam',
         score: percentage,
-        date: new Date(sub.submitted_at).toLocaleDateString()
+        date: new Date(sub.completed_at || sub.created_at).toLocaleDateString()
       };
     });
 

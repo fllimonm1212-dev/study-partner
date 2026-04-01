@@ -112,7 +112,7 @@ export default function Sidebar({ isOpen, onClose }: { isOpen?: boolean; onClose
             <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center shadow-lg shadow-indigo-500/20 border border-indigo-500/20 dark:border-white/10 relative overflow-hidden group">
               <div className="absolute inset-0 bg-white/20 group-hover:translate-x-full transition-transform duration-700 -skew-x-12 -translate-x-full" />
               <img 
-                src="https://raw.githubusercontent.com/stackblitz/stackblitz-images/main/study-partner-logo.png" 
+                src="/logo.png" 
                 alt="Study Partner Logo" 
                 className="w-full h-full object-cover relative z-10"
                 referrerPolicy="no-referrer"
