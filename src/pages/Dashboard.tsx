@@ -509,7 +509,7 @@ export default function Dashboard() {
         recentExams.forEach(e => {
           const examTitle = (e.exams as any)?.title || 'Exam';
           const isCompleted = e.status === 'completed';
-          const action = isCompleted ? `Completed ${examTitle} (${e.score}/${e.total_points})` : `Started ${examTitle}`;
+          const action = isCompleted ? `Completed ${examTitle} (${Number(e.score.toFixed(2))}/${e.total_points})` : `Started ${examTitle}`;
           const color = isCompleted ? 'text-indigo-400' : 'text-amber-400';
           const bg = isCompleted ? 'bg-indigo-400/10' : 'bg-amber-400/10';
 
@@ -1053,7 +1053,7 @@ export default function Dashboard() {
                     <p className="text-sm font-bold text-white truncate">{(exam.exams as any)?.title || 'Exam'}</p>
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="text-[10px] font-bold uppercase text-emerald-400">
-                        Score: {exam.score}/{exam.total_points}
+                        Score: {Number(exam.score.toFixed(2))}/{exam.total_points}
                       </span>
                       <span className="text-[10px] font-bold uppercase text-slate-500">
                         • {new Date(exam.created_at).toLocaleDateString()}

@@ -39,7 +39,8 @@ export default function AdminPanel() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [newExam, setNewExam] = useState({
     title: '', description: '', instructions: '', duration_minutes: 30, start_time: '', end_time: '',
-    passing_percentage: 50, is_published: true, randomize_questions: false
+    passing_percentage: 50, is_published: true, randomize_questions: false,
+    negative_marking_enabled: false, negative_marking_penalty: 0.25
   });
   const [newQuestions, setNewQuestions] = useState<any[]>([
     { question_text: '', options: ['', '', '', ''], correct_option_index: 0, points: 1, explanation: '' }
@@ -285,7 +286,9 @@ export default function AdminPanel() {
         end_time: newExam.end_time ? new Date(newExam.end_time).toISOString() : null,
         passing_percentage: newExam.passing_percentage,
         is_published: newExam.is_published,
-        randomize_questions: newExam.randomize_questions
+        randomize_questions: newExam.randomize_questions,
+        negative_marking_enabled: newExam.negative_marking_enabled,
+        negative_marking_penalty: newExam.negative_marking_penalty
       };
 
       let examId = editingExamId;
@@ -345,7 +348,9 @@ export default function AdminPanel() {
         end_time: '',
         passing_percentage: 50,
         is_published: true,
-        randomize_questions: false
+        randomize_questions: false,
+        negative_marking_enabled: false,
+        negative_marking_penalty: 0.25
       });
       setNewQuestions([{ question_text: '', options: ['', '', '', ''], correct_option_index: 0, points: 1, explanation: '' }]);
       setErrorMsg('');
@@ -367,7 +372,9 @@ export default function AdminPanel() {
       end_time: toLocalISOString(exam.end_time),
       passing_percentage: exam.passing_percentage ?? 50,
       is_published: exam.is_published ?? true,
-      randomize_questions: exam.randomize_questions ?? false
+      randomize_questions: exam.randomize_questions ?? false,
+      negative_marking_enabled: exam.negative_marking_enabled ?? false,
+      negative_marking_penalty: exam.negative_marking_penalty ?? 0.25
     });
 
     // Fetch questions for this exam
@@ -1020,6 +1027,34 @@ export default function AdminPanel() {
                         </div>
                       </div>
 
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                        <div className="flex items-center gap-3 pt-6">
+                          <input 
+                            type="checkbox" 
+                            id="negative_marking_enabled"
+                            checked={newExam.negative_marking_enabled}
+                            onChange={e => setNewExam({...newExam, negative_marking_enabled: e.target.checked})}
+                            className="w-5 h-5 rounded border-slate-700 bg-slate-900/50 text-indigo-500 focus:ring-indigo-500"
+                          />
+                          <label htmlFor="negative_marking_enabled" className="text-sm font-medium text-slate-300 cursor-pointer">
+                            Enable Negative Marking
+                          </label>
+                        </div>
+                        {newExam.negative_marking_enabled && (
+                          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}>
+                            <label className="block text-sm font-medium text-slate-400 mb-1">Penalty per Wrong Answer</label>
+                            <input 
+                              type="number" 
+                              step="0.01"
+                              min="0"
+                              value={newExam.negative_marking_penalty}
+                              onChange={e => setNewExam({...newExam, negative_marking_penalty: parseFloat(e.target.value) || 0})}
+                              className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-indigo-500"
+                            />
+                          </motion.div>
+                        )}
+                      </div>
+
                       <div className="mt-8">
                         <div className="flex flex-col gap-4 mb-6 p-4 bg-slate-900/50 border border-slate-800 rounded-xl">
                           <h4 className="text-md font-medium text-white">Auto-Generate Questions</h4>
@@ -1282,7 +1317,7 @@ export default function AdminPanel() {
                               </td>
                               <td className="px-6 py-4 text-slate-300">{sub.exams?.title || 'Deleted Exam'}</td>
                               <td className="px-6 py-4">
-                                <span className="text-white font-bold">{sub.score}</span>
+                                <span className="text-white font-bold">{Number(sub.score.toFixed(2))}</span>
                                 <span className="text-slate-500 text-sm"> / {totalPoints}</span>
                               </td>
                               <td className="px-6 py-4">

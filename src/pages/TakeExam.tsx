@@ -345,8 +345,16 @@ export default function TakeExam() {
         totalPoints += q.points || 1;
         if (answers[q.id] === q.correct_option_index) {
           score += q.points || 1;
+        } else if (answers[q.id] !== undefined && answers[q.id] !== -1) {
+          // Wrong answer (and not skipped)
+          if (exam.negative_marking_enabled) {
+            score -= (exam.negative_marking_penalty || 0);
+          }
         }
       });
+      
+      // Ensure score doesn't go below 0 if that's preferred, but usually negative scores are allowed in competitive exams.
+      // We will allow negative scores as it's standard for negative marking.
 
       const submissionData = {
         score,
@@ -455,7 +463,7 @@ export default function TakeExam() {
               </div>
             </div>
             <div className="text-5xl font-bold text-white mb-2">
-              {result.score} <span className="text-2xl text-slate-500">/ {result.total_points}</span>
+              {Number(result.score.toFixed(2))} <span className="text-2xl text-slate-500">/ {result.total_points}</span>
             </div>
             <div className={`text-lg font-medium ${isPassed ? 'text-emerald-400' : 'text-rose-400'}`}>
               {percentage.toFixed(1)}% <span className="text-sm text-slate-500 ml-2">(Passing: {passingPercentage}%)</span>
@@ -498,8 +506,8 @@ export default function TakeExam() {
                       <span className="text-slate-400 mr-2">{index + 1}.</span>
                       {q.question_text}
                     </h4>
-                    <span className={`px-3 py-1 rounded-lg text-sm font-bold whitespace-nowrap ml-4 ${isCorrect ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
-                      {isCorrect ? q.points : 0} / {q.points} pts
+                    <span className={`px-3 py-1 rounded-lg text-sm font-bold whitespace-nowrap ml-4 ${isCorrect ? 'bg-emerald-500/10 text-emerald-400' : userAnswer !== undefined && userAnswer !== -1 && exam.negative_marking_enabled ? 'bg-rose-500/10 text-rose-400' : 'bg-slate-800 text-slate-400'}`}>
+                      {isCorrect ? q.points : userAnswer !== undefined && userAnswer !== -1 && exam.negative_marking_enabled ? `-${exam.negative_marking_penalty}` : 0} / {q.points} pts
                     </span>
                   </div>
                   <div className="space-y-3">
@@ -553,7 +561,9 @@ export default function TakeExam() {
                       <div className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-xl flex items-start gap-3">
                         <XCircle className="text-rose-500 shrink-0 mt-0.5" size={18} />
                         <div>
-                          <p className="text-sm font-bold text-rose-400 mb-1">Incorrect</p>
+                          <p className="text-sm font-bold text-rose-400 mb-1">
+                            Incorrect {exam.negative_marking_enabled ? `(-${exam.negative_marking_penalty} points)` : ''}
+                          </p>
                           <p className="text-rose-200 text-sm">
                             The correct answer is <span className="font-bold text-white">{String.fromCharCode(65 + q.correct_option_index)}: {q.options[q.correct_option_index]}</span>
                           </p>

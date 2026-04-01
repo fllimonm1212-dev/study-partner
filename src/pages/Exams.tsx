@@ -382,7 +382,7 @@ export default function Exams() {
                                 {percentage}%
                               </span>
                               <span className="text-slate-500 text-xs">
-                                ({submission.score}/{submission.total_points})
+                                ({Number(submission.score.toFixed(2))}/{submission.total_points})
                               </span>
                             </div>
                           </td>
@@ -521,7 +521,7 @@ export default function Exams() {
                                 {percentage}%
                               </span>
                               <span className="text-slate-500 text-xs">
-                                ({submission.score}/{submission.total_points})
+                                ({Number(submission.score.toFixed(2))}/{submission.total_points})
                               </span>
                             </div>
                           </td>
