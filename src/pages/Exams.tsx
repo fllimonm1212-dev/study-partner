@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { FileText, Clock, Trophy, Play, CheckCircle2 } from 'lucide-react';
+import { FileText, Clock, Trophy, Play, CheckCircle2, AlertCircle } from 'lucide-react';
 import { motion } from 'motion/react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
@@ -15,6 +15,7 @@ export default function Exams() {
   const [selectedExamId, setSelectedExamId] = useState<string>('');
   const [leaderboardData, setLeaderboardData] = useState<any[]>([]);
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
+  const [leaderboardError, setLeaderboardError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -39,8 +40,9 @@ export default function Exams() {
         setExams(examsData || []);
         setSubmissions(subsData || []);
         
-        if (examsData && examsData.length > 0) {
-          setSelectedExamId(examsData[0].id);
+        const visibleExams = (examsData || []).filter(e => e.is_published !== false || (subsData || []).some(s => s.exam_id === e.id));
+        if (visibleExams.length > 0) {
+          setSelectedExamId(visibleExams[0].id);
         }
       } catch (error) {
         console.error("Error fetching exams:", error);
@@ -56,7 +58,10 @@ export default function Exams() {
     if (activeTab !== 'leaderboard' || !selectedExamId) return;
 
     const fetchLeaderboard = async () => {
+      if (!selectedExamId) return;
       setLoadingLeaderboard(true);
+      setLeaderboardError(null);
+      console.log("Fetching leaderboard for exam:", selectedExamId);
       try {
         const { data, error } = await supabase
           .from('exam_submissions')
@@ -68,7 +73,7 @@ export default function Exams() {
             completed_at,
             created_at,
             user_id,
-            profiles (
+            profiles:user_id (
               id,
               full_name,
               email,
@@ -80,12 +85,21 @@ export default function Exams() {
           .eq('exam_id', selectedExamId)
           .eq('status', 'completed')
           .order('score', { ascending: false })
-          .order('completed_at', { ascending: true }); // Tie-breaker: whoever submitted first
+          .order('completed_at', { ascending: true });
 
-        if (error && error.code !== '42P01') throw error;
+        if (error) {
+          console.error("Supabase error fetching leaderboard:", error);
+          if (error.code === '42P01') {
+            console.warn("Table 'exam_submissions' does not exist yet.");
+          }
+          throw error;
+        }
+        
+        console.log("Leaderboard data received:", data?.length || 0, "rows");
         setLeaderboardData(data || []);
-      } catch (error) {
+      } catch (error: any) {
         console.error("Error fetching leaderboard:", error);
+        setLeaderboardError(error.message || "Failed to load leaderboard data.");
       } finally {
         setLoadingLeaderboard(false);
       }
@@ -108,6 +122,9 @@ export default function Exams() {
         <div>
           <h1 className="text-2xl font-bold text-white tracking-tight">Exams & Quizzes</h1>
           <p className="text-slate-400 text-sm mt-1">Test your knowledge and track your performance.</p>
+        </div>
+        <div className="text-xs text-slate-500 bg-slate-900/50 px-3 py-1.5 rounded-lg border border-slate-800 self-start md:self-center">
+          Current Time: {new Date().toLocaleString()}
         </div>
         
         <div className="flex bg-slate-900/80 p-1.5 rounded-2xl border border-slate-800 shadow-xl w-fit">
@@ -145,7 +162,7 @@ export default function Exams() {
       </div>
 
       {activeTab === 'available' ? (
-        exams.length === 0 ? (
+        exams.filter(e => e.is_published !== false).length === 0 ? (
           <div className="glass-panel p-12 rounded-2xl text-center flex flex-col items-center">
             <FileText className="w-16 h-16 text-slate-600 mb-4" />
             <h3 className="text-lg font-medium text-white">No exams available</h3>
@@ -153,10 +170,18 @@ export default function Exams() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {exams.map((exam, index) => {
+            {exams.filter(e => e.is_published !== false).map((exam, index) => {
               const submission = submissions.find(s => s.exam_id === exam.id);
               const isCompleted = submission?.status === 'completed';
               const isInProgress = submission?.status === 'in-progress';
+
+              const now = new Date();
+              const startTime = exam.start_time ? new Date(exam.start_time) : null;
+              const endTime = exam.end_time ? new Date(exam.end_time) : null;
+              
+              const hasStarted = !startTime || startTime <= now;
+              const hasEnded = endTime && endTime < now;
+              const isAvailable = hasStarted && !hasEnded;
 
               return (
                 <motion.div 
@@ -170,12 +195,26 @@ export default function Exams() {
                   
                   <div className="flex justify-between items-start mb-4">
                     <div>
-                      <h3 
-                        onClick={() => navigate(`/exams/${exam.id}`)}
-                        className="text-xl font-bold text-white mb-1 hover:text-indigo-400 cursor-pointer transition-colors"
-                      >
-                        {exam.title}
-                      </h3>
+                      <div className="flex items-center gap-2 mb-1">
+                        <h3 
+                          onClick={() => navigate(`/exams/${exam.id}`)}
+                          className="text-xl font-bold text-white hover:text-indigo-400 cursor-pointer transition-colors"
+                        >
+                          {exam.title}
+                        </h3>
+                        {(() => {
+                          if (hasEnded) {
+                            return <span className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider bg-rose-500/20 text-rose-400 border border-rose-500/30">Ended</span>;
+                          }
+                          if (!hasStarted) {
+                            return <span className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider bg-amber-500/20 text-amber-400 border border-amber-500/30">Upcoming</span>;
+                          }
+                          if (isAvailable) {
+                            return <span className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">Live</span>;
+                          }
+                          return null;
+                        })()}
+                      </div>
                       <p className="text-sm text-slate-400 mt-1 line-clamp-2">{exam.description}</p>
                     </div>
                   </div>
@@ -211,7 +250,7 @@ export default function Exams() {
                         <div className="flex justify-between text-sm font-medium">
                           <span className="text-slate-300">Your Score</span>
                           <span className="text-emerald-400">
-                            {submission.score} / {submission.total_points} ({(submission.score / submission.total_points * 100).toFixed(0)}%)
+                            {submission.score} / {submission.total_points} ({submission.total_points > 0 ? (submission.score / submission.total_points * 100).toFixed(0) : 0}%)
                           </span>
                         </div>
                         <div className="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden">
@@ -246,6 +285,34 @@ export default function Exams() {
                         >
                           <Play size={18} />
                           Resume Exam
+                        </button>
+                      </div>
+                    ) : !hasStarted ? (
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-center gap-2 text-blue-400 text-sm font-bold py-2 bg-blue-500/10 rounded-lg border border-blue-500/20">
+                          <Clock size={18} />
+                          Not Started Yet
+                        </div>
+                        <button 
+                          disabled
+                          className="w-full py-3 bg-slate-800 text-slate-500 font-semibold rounded-xl cursor-not-allowed flex items-center justify-center gap-2"
+                        >
+                          <Play size={18} />
+                          Start Exam
+                        </button>
+                      </div>
+                    ) : hasEnded ? (
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-center gap-2 text-rose-400 text-sm font-bold py-2 bg-rose-500/10 rounded-lg border border-rose-500/20">
+                          <AlertCircle size={18} />
+                          Exam Ended
+                        </div>
+                        <button 
+                          disabled
+                          className="w-full py-3 bg-slate-800 text-slate-500 font-semibold rounded-xl cursor-not-allowed flex items-center justify-center gap-2"
+                        >
+                          <Play size={18} />
+                          Start Exam
                         </button>
                       </div>
                     ) : (
@@ -288,7 +355,11 @@ export default function Exams() {
                     .sort((a, b) => new Date(b.completed_at || b.created_at).getTime() - new Date(a.completed_at || a.created_at).getTime())
                     .map((submission) => {
                       const exam = exams.find(e => e.id === submission.exam_id);
-                      const percentage = ((submission.score / submission.total_points) * 100).toFixed(0);
+                      const percentage = (submission.total_points && submission.total_points > 0)
+                        ? ((submission.score / submission.total_points) * 100).toFixed(0)
+                        : '0';
+                      const passingPercentage = exam?.passing_percentage ?? 50;
+                      const isPassed = Number(percentage) >= passingPercentage;
                       const date = new Date(submission.completed_at || submission.created_at).toLocaleDateString('en-US', {
                         year: 'numeric',
                         month: 'short',
@@ -307,7 +378,7 @@ export default function Exams() {
                           </td>
                           <td className="py-4 px-4">
                             <div className="flex items-center gap-3">
-                              <span className={`font-bold ${Number(percentage) >= 70 ? 'text-emerald-400' : Number(percentage) >= 50 ? 'text-amber-400' : 'text-rose-400'}`}>
+                              <span className={`font-bold ${isPassed ? 'text-emerald-400' : 'text-rose-400'}`}>
                                 {percentage}%
                               </span>
                               <span className="text-slate-500 text-xs">
@@ -340,8 +411,8 @@ export default function Exams() {
               onChange={(e) => setSelectedExamId(e.target.value)}
               className="bg-slate-900/90 border border-slate-700/50 text-slate-200 text-sm font-bold rounded-xl focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 block px-4 py-2 outline-none transition-all hover:bg-slate-800 cursor-pointer shadow-xl min-w-[200px]"
             >
-              {exams.length === 0 && <option value="">No exams available</option>}
-              {exams.map(exam => (
+              {exams.filter(e => e.is_published !== false || submissions.some(s => s.exam_id === e.id)).length === 0 && <option value="">No exams available</option>}
+              {exams.filter(e => e.is_published !== false || submissions.some(s => s.exam_id === e.id)).map(exam => (
                 <option key={exam.id} value={exam.id}>{exam.title}</option>
               ))}
             </select>
@@ -351,6 +422,16 @@ export default function Exams() {
             {loadingLeaderboard ? (
               <div className="flex items-center justify-center py-12">
                 <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-indigo-500"></div>
+              </div>
+            ) : leaderboardError ? (
+              <div className="text-center py-12">
+                <AlertCircle className="w-16 h-16 text-rose-500 mb-4 mx-auto" />
+                <h3 className="text-lg font-medium text-white">Failed to load leaderboard</h3>
+                <p className="text-rose-400 mt-2">{leaderboardError}</p>
+                <p className="text-slate-400 mt-4 max-w-md mx-auto text-sm">
+                  This is likely due to Supabase Row Level Security (RLS) policies. 
+                  Please ensure you have run the leaderboard fix SQL script in your Supabase dashboard.
+                </p>
               </div>
             ) : leaderboardData.length === 0 ? (
               <div className="text-center py-12">
@@ -373,11 +454,16 @@ export default function Exams() {
                   <tbody className="text-sm">
                     {leaderboardData
                       .map((submission, index) => {
-                      const profile = submission.profiles || {};
-                      const name = profile.full_name || profile.email?.split('@')[0] || 'Unknown Student';
+                      const profile = Array.isArray(submission.profiles) ? submission.profiles[0] : (submission.profiles || {});
+                      const name = profile?.full_name || profile?.email?.split('@')[0] || 'Unknown Student';
                       const initials = name.substring(0, 2).toUpperCase();
                       const isMe = submission.user_id === user?.id;
-                      const percentage = ((submission.score / submission.total_points) * 100).toFixed(0);
+                      const percentage = (submission.total_points && submission.total_points > 0)
+                        ? ((submission.score / submission.total_points) * 100).toFixed(0)
+                        : '0';
+                      const selectedExam = exams.find(e => e.id === selectedExamId);
+                      const passingPercentage = selectedExam?.passing_percentage ?? 50;
+                      const isPassed = Number(percentage) >= passingPercentage;
                       const date = new Date(submission.completed_at || submission.created_at).toLocaleDateString('en-US', {
                         month: 'short',
                         day: 'numeric',
@@ -410,7 +496,7 @@ export default function Exams() {
                                 className="cursor-pointer transition-transform hover:scale-110"
                                 onClick={() => navigate(`/friends/${submission.user_id}/profile`)}
                               >
-                                {profile.avatar_url ? (
+                                {profile?.avatar_url ? (
                                   <img src={profile.avatar_url} alt={name} className="w-8 h-8 rounded-full object-cover" />
                                 ) : (
                                   <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-xs font-bold text-slate-300">
@@ -427,11 +513,11 @@ export default function Exams() {
                             </div>
                           </td>
                           <td className="py-4 px-4 text-slate-400">
-                            {profile.class_id ? `${profile.class_id}-${profile.section || 'A'}` : 'N/A'}
+                            {profile?.class_id ? `${profile.class_id}-${profile.section || 'A'}` : 'N/A'}
                           </td>
                           <td className="py-4 px-4">
                             <div className="flex items-center gap-2">
-                              <span className={`font-bold ${Number(percentage) >= 70 ? 'text-emerald-400' : Number(percentage) >= 50 ? 'text-amber-400' : 'text-rose-400'}`}>
+                              <span className={`font-bold ${isPassed ? 'text-emerald-400' : 'text-rose-400'}`}>
                                 {percentage}%
                               </span>
                               <span className="text-slate-500 text-xs">

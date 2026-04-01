@@ -1,15 +1,20 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
-import { Clock, AlertTriangle, CheckCircle2, ChevronRight, ChevronLeft, Trophy, FileText, Play, XCircle } from 'lucide-react';
+import { Clock, AlertTriangle, CheckCircle2, ChevronRight, ChevronLeft, Trophy, FileText, Play, XCircle, User } from 'lucide-react';
 import { motion } from 'motion/react';
 import { toast } from 'sonner';
 
 export default function TakeExam() {
   const { id } = useParams();
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  
+  const targetUserId = searchParams.get('userId') || user?.id;
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [studentProfile, setStudentProfile] = useState<any>(null);
   
   const [exam, setExam] = useState<any>(null);
   const [questions, setQuestions] = useState<any[]>([]);
@@ -29,17 +34,45 @@ export default function TakeExam() {
   const [showSidebar, setShowSidebar] = useState(false);
 
   useEffect(() => {
-    if (!user || !id) return;
+    if (!user) return;
+
+    const checkAdmin = async () => {
+      const { data } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+      
+      if (data?.role === 'admin') {
+        setIsAdmin(true);
+      }
+    };
+
+    checkAdmin();
+  }, [user]);
+
+  useEffect(() => {
+    if (!user || !id || !targetUserId) return;
 
     const fetchExamData = async () => {
       setLoading(true);
       try {
+        // If viewing someone else's result, fetch their profile
+        if (targetUserId !== user.id) {
+          const { data: profileData } = await supabase
+            .from('profiles')
+            .select('full_name, email')
+            .eq('id', targetUserId)
+            .single();
+          setStudentProfile(profileData);
+        }
+
         // Check if already submitted or in progress
         const { data: existingSub } = await supabase
           .from('exam_submissions')
           .select('*')
           .eq('exam_id', id)
-          .eq('user_id', user.id)
+          .eq('user_id', targetUserId)
           .maybeSingle();
 
       if (existingSub) {
@@ -49,7 +82,7 @@ export default function TakeExam() {
           if (existingSub.answers) {
             setAnswers(existingSub.answers);
           }
-        } else if (existingSub.status === 'in-progress') {
+        } else if (existingSub.status === 'in-progress' && targetUserId === user.id) {
           setCurrentSubmissionId(existingSub.id);
           setHasStarted(true);
           
@@ -80,6 +113,31 @@ export default function TakeExam() {
           .single();
 
         if (examError) throw examError;
+        
+        // Check availability
+        const now = new Date();
+        const startTime = examData.start_time ? new Date(examData.start_time) : null;
+        const endTime = examData.end_time ? new Date(examData.end_time) : null;
+        
+        // Only block access if the user hasn't completed the exam and isn't an admin viewing someone else's result
+        if (existingSub?.status !== 'completed' && targetUserId === user.id) {
+          // Check if admin (we need to wait for isAdmin state, or fetch it here to be safe)
+          const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
+          const userIsAdmin = profile?.role === 'admin';
+
+          if (startTime && startTime > now && !userIsAdmin) {
+            toast.error("This exam has not started yet.");
+            navigate('/exams');
+            return;
+          }
+          
+          if (endTime && endTime < now && !userIsAdmin) {
+            toast.error("This exam has already ended.");
+            navigate('/exams');
+            return;
+          }
+        }
+
         setExam(examData);
 
         // Fetch questions
@@ -90,7 +148,31 @@ export default function TakeExam() {
           .order('created_at', { ascending: true });
 
         if (questionsError) throw questionsError;
-        setQuestions(questionsData || []);
+        
+        let finalQuestions = questionsData || [];
+        
+        if (examData.randomize_questions && finalQuestions.length > 0) {
+          // Simple deterministic shuffle based on user ID so it doesn't change on refresh
+          let seed = 0;
+          for (let i = 0; i < user.id.length; i++) {
+            seed += user.id.charCodeAt(i);
+          }
+          
+          const seededRandom = () => {
+            const x = Math.sin(seed++) * 10000;
+            return x - Math.floor(x);
+          };
+          
+          let m = finalQuestions.length, t, i;
+          while (m) {
+            i = Math.floor(seededRandom() * m--);
+            t = finalQuestions[m];
+            finalQuestions[m] = finalQuestions[i];
+            finalQuestions[i] = t;
+          }
+        }
+        
+        setQuestions(finalQuestions);
         
         // Set timer
         if (examData.duration_minutes) {
@@ -330,29 +412,53 @@ export default function TakeExam() {
   }
 
   if (isSubmitted && result) {
-    const percentage = (result.score / result.total_points) * 100;
-    const canViewAnswers = !exam.end_time || new Date() >= new Date(exam.end_time);
+    const totalPoints = result.total_points || 1;
+    const percentage = (result.score / totalPoints) * 100;
+    const canViewAnswers = isAdmin || !exam?.end_time || new Date() >= new Date(exam.end_time);
+    const passingPercentage = exam?.passing_percentage ?? 50;
+    const isPassed = percentage >= passingPercentage;
 
     return (
       <div className="max-w-3xl mx-auto mt-12 pb-12">
+        {studentProfile && (
+          <div className="glass-panel p-4 rounded-xl mb-6 border-l-4 border-l-indigo-500 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-indigo-500/10 flex items-center justify-center text-indigo-400">
+              <User size={20} />
+            </div>
+            <div>
+              <p className="text-xs text-slate-500 uppercase font-bold tracking-wider">Viewing Result For</p>
+              <h3 className="text-white font-bold">{studentProfile.full_name}</h3>
+              <p className="text-xs text-slate-400">{studentProfile.email}</p>
+            </div>
+          </div>
+        )}
         <motion.div 
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
           className="glass-panel p-8 rounded-2xl text-center mb-8"
         >
-          <div className="w-20 h-20 bg-emerald-500/10 rounded-full flex items-center justify-center mx-auto mb-6">
-            <CheckCircle2 size={40} className="text-emerald-500" />
+          <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 ${isPassed ? 'bg-emerald-500/10' : 'bg-rose-500/10'}`}>
+            {isPassed ? (
+              <CheckCircle2 size={40} className="text-emerald-500" />
+            ) : (
+              <XCircle size={40} className="text-rose-500" />
+            )}
           </div>
           <h2 className="text-3xl font-bold text-white mb-2">Exam Completed!</h2>
           <p className="text-slate-400 mb-8">You have successfully submitted your answers.</p>
           
           <div className="bg-slate-900/50 rounded-xl p-6 mb-8 border border-slate-800">
-            <div className="text-sm text-slate-400 uppercase tracking-wider font-bold mb-2">Your Score</div>
+            <div className="flex justify-between items-center mb-4">
+              <div className="text-sm text-slate-400 uppercase tracking-wider font-bold">Your Score</div>
+              <div className={`px-3 py-1 rounded-full text-sm font-bold ${isPassed ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
+                {isPassed ? 'PASSED' : 'FAILED'}
+              </div>
+            </div>
             <div className="text-5xl font-bold text-white mb-2">
               {result.score} <span className="text-2xl text-slate-500">/ {result.total_points}</span>
             </div>
-            <div className={`text-lg font-medium ${percentage >= 80 ? 'text-emerald-400' : percentage >= 50 ? 'text-amber-400' : 'text-rose-400'}`}>
-              {percentage.toFixed(1)}%
+            <div className={`text-lg font-medium ${isPassed ? 'text-emerald-400' : 'text-rose-400'}`}>
+              {percentage.toFixed(1)}% <span className="text-sm text-slate-500 ml-2">(Passing: {passingPercentage}%)</span>
             </div>
           </div>
           
@@ -471,7 +577,7 @@ export default function TakeExam() {
     );
   }
 
-  if (!exam || questions.length === 0) {
+  if (!exam || (questions.length === 0 && !isSubmitted)) {
     return (
       <div className="text-center py-12">
         <AlertTriangle className="w-12 h-12 text-amber-500 mx-auto mb-4" />

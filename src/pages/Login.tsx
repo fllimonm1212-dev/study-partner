@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { BookOpen, Loader2 } from 'lucide-react';
 
@@ -9,6 +9,7 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
+  const location = useLocation();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -24,7 +25,8 @@ export default function Login() {
       setError(error.message);
       setLoading(false);
     } else {
-      navigate('/dashboard');
+      const from = location.state?.from?.pathname || '/dashboard';
+      navigate(from, { replace: true });
     }
   };
 
@@ -44,7 +46,7 @@ export default function Login() {
         </h2>
         <p className="mt-2 text-center text-sm text-slate-400">
           Or{' '}
-          <Link to="/register" className="font-medium text-indigo-400 hover:text-indigo-300 transition-colors">
+          <Link to="/register" state={{ from: location.state?.from }} className="font-medium text-indigo-400 hover:text-indigo-300 transition-colors">
             create a new account
           </Link>
         </p>

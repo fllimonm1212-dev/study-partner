@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { BookOpen, Loader2 } from 'lucide-react';
 
@@ -11,6 +11,7 @@ export default function Register() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,7 +36,8 @@ export default function Register() {
       setLoading(false);
       // If email confirmation is off, they might be logged in immediately
       if (data.session) {
-        navigate('/dashboard');
+        const from = location.state?.from?.pathname || '/dashboard';
+        navigate(from, { replace: true });
       }
     }
   };
@@ -56,7 +58,7 @@ export default function Register() {
         </h2>
         <p className="mt-2 text-center text-sm text-slate-400">
           Or{' '}
-          <Link to="/login" className="font-medium text-indigo-400 hover:text-indigo-300 transition-colors">
+          <Link to="/login" state={{ from: location.state?.from }} className="font-medium text-indigo-400 hover:text-indigo-300 transition-colors">
             sign in to your existing account
           </Link>
         </p>
@@ -69,7 +71,7 @@ export default function Register() {
               <div className="bg-emerald-500/10 border border-emerald-500/50 text-emerald-400 p-4 rounded-lg">
                 Registration successful! Please check your email to verify your account.
               </div>
-              <Link to="/login" className="block w-full text-center py-2.5 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 transition-colors">
+              <Link to="/login" state={{ from: location.state?.from }} className="block w-full text-center py-2.5 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 transition-colors">
                 Return to login
               </Link>
             </div>

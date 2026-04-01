@@ -22,6 +22,37 @@ function Target(props: any) {
   return <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
 }
 
+const CustomTooltip = ({ active, payload, label }: any) => {
+  if (active && payload && payload.length) {
+    return (
+      <div className="bg-slate-900/95 backdrop-blur-md border border-slate-700 p-4 rounded-xl shadow-2xl ring-1 ring-white/10">
+        <p className="text-slate-200 font-bold mb-3 flex items-center gap-2">
+          <Clock size={14} className="text-indigo-400" />
+          {label}
+        </p>
+        <div className="space-y-2">
+          {payload.map((entry: any, index: number) => (
+            <div key={index} className="flex items-center justify-between gap-6">
+              <div className="flex items-center gap-2">
+                <div className="w-2.5 h-2.5 rounded-full shadow-sm" style={{ backgroundColor: entry.fill.includes('url') ? entry.color : entry.fill }}></div>
+                <span className="text-xs text-slate-400 font-medium capitalize">{entry.name}</span>
+              </div>
+              <span className="text-xs font-bold text-white tabular-nums">{entry.value.toFixed(1)}h</span>
+            </div>
+          ))}
+          <div className="pt-2 mt-2 border-t border-slate-800 flex items-center justify-between gap-6">
+            <span className="text-xs font-bold text-slate-300">Total Study</span>
+            <span className="text-xs font-bold text-indigo-400 tabular-nums">
+              {payload.reduce((acc: number, curr: any) => acc + curr.value, 0).toFixed(1)}h
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  return null;
+};
+
 export default function Dashboard() {
   const { user } = useAuth();
   const { t } = useLanguage();
@@ -66,6 +97,23 @@ export default function Dashboard() {
   });
   const [isSaving, setIsSaving] = useState(false);
 
+  // Sync from localStorage when user becomes available
+  useEffect(() => {
+    if (!user) return;
+    
+    const savedActiveType = localStorage.getItem(`timer_${user.id}_activeType`) as ActivityType;
+    if (savedActiveType) setActiveType(savedActiveType);
+    
+    const savedIsRunning = localStorage.getItem(`timer_${user.id}_isRunning`) === 'true';
+    setIsRunning(savedIsRunning);
+    
+    const savedSessionStartTime = localStorage.getItem(`timer_${user.id}_sessionStartTime`);
+    if (savedSessionStartTime) setSessionStartTime(new Date(savedSessionStartTime));
+    
+    const savedElapsedSeconds = localStorage.getItem(`timer_${user.id}_elapsedSeconds`);
+    if (savedElapsedSeconds) setElapsedSeconds(parseInt(savedElapsedSeconds, 10));
+  }, [user]);
+
   const stateRef = useRef({ activeType, sessionStartTime, elapsedSeconds, isRunning });
   useEffect(() => {
     stateRef.current = { activeType, sessionStartTime, elapsedSeconds, isRunning };
@@ -93,15 +141,16 @@ export default function Dashboard() {
   useEffect(() => {
     if (!user || !isRunning) return;
     const interval = window.setInterval(() => {
-      setElapsedSeconds(prev => {
-        const next = prev + 1;
-        localStorage.setItem(`timer_${user.id}_elapsedSeconds`, String(next));
-        return next;
-      });
+      setElapsedSeconds(prev => prev + 1);
       localStorage.setItem(`timer_${user.id}_lastTick`, String(Date.now()));
     }, 1000);
     return () => clearInterval(interval);
   }, [isRunning, user]);
+
+  useEffect(() => {
+    if (!user || !isRunning) return;
+    localStorage.setItem(`timer_${user.id}_elapsedSeconds`, String(elapsedSeconds));
+  }, [elapsedSeconds, isRunning, user]);
 
   useEffect(() => {
     if (!user) return;
@@ -588,42 +637,11 @@ export default function Dashboard() {
     };
   }, [user]);
 
-  const activeConfig = activities.find(a => a.id === activeType)!;
+  const activeConfig = activities.find(a => a.id === activeType) || activities[0];
 
   const filteredActiveUsers = selectedSubject 
     ? activeUsers.filter(u => u.subject === selectedSubject)
     : activeUsers;
-
-  const CustomTooltip = ({ active, payload, label }: any) => {
-    if (active && payload && payload.length) {
-      return (
-        <div className="bg-slate-900/95 backdrop-blur-md border border-slate-700 p-4 rounded-xl shadow-2xl ring-1 ring-white/10">
-          <p className="text-slate-200 font-bold mb-3 flex items-center gap-2">
-            <Clock size={14} className="text-indigo-400" />
-            {label}
-          </p>
-          <div className="space-y-2">
-            {payload.map((entry: any, index: number) => (
-              <div key={index} className="flex items-center justify-between gap-6">
-                <div className="flex items-center gap-2">
-                  <div className="w-2.5 h-2.5 rounded-full shadow-sm" style={{ backgroundColor: entry.fill.includes('url') ? entry.color : entry.fill }}></div>
-                  <span className="text-xs text-slate-400 font-medium capitalize">{entry.name}</span>
-                </div>
-                <span className="text-xs font-bold text-white tabular-nums">{entry.value.toFixed(1)}h</span>
-              </div>
-            ))}
-            <div className="pt-2 mt-2 border-t border-slate-800 flex items-center justify-between gap-6">
-              <span className="text-xs font-bold text-slate-300">Total Study</span>
-              <span className="text-xs font-bold text-indigo-400 tabular-nums">
-                {payload.reduce((acc: number, curr: any) => acc + curr.value, 0).toFixed(1)}h
-              </span>
-            </div>
-          </div>
-        </div>
-      );
-    }
-    return null;
-  };
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto p-4 md:p-8">

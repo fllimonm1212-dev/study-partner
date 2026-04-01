@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Database, FolderTree, Server, ShieldCheck, AlertTriangle, Users, Target, Activity, Plus, Trash2, FileText, Upload, Loader2, MessageSquareWarning, CheckCircle2 } from 'lucide-react';
+import { Database, FolderTree, Server, ShieldCheck, AlertTriangle, Users, Target, Activity, Plus, Trash2, FileText, Upload, Loader2, MessageSquareWarning, CheckCircle2, Link } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 import { Navigate, useNavigate } from 'react-router-dom';
@@ -7,6 +7,7 @@ import { supabase } from '../lib/supabase';
 import { cn } from '../components/Sidebar';
 import { GoogleGenAI, Type } from '@google/genai';
 import mammoth from 'mammoth';
+import { toast } from 'sonner';
 
 export default function AdminPanel() {
   const { user } = useAuth();
@@ -21,6 +22,7 @@ export default function AdminPanel() {
   const [feedbackFilter, setFeedbackFilter] = useState<'all' | 'complain' | 'feature_request'>('all');
   const [stats, setStats] = useState({ totalUsers: 0, totalHours: 0, totalSessions: 0 });
   const [isLoading, setIsLoading] = useState(false);
+  const [isSettingUpDB, setIsSettingUpDB] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
   // Challenge form
@@ -36,14 +38,66 @@ export default function AdminPanel() {
   const [isGeneratingFromTopic, setIsGeneratingFromTopic] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [newExam, setNewExam] = useState({
-    title: '', description: '', instructions: '', duration_minutes: 30, start_time: '', end_time: ''
+    title: '', description: '', instructions: '', duration_minutes: 30, start_time: '', end_time: '',
+    passing_percentage: 50, is_published: true, randomize_questions: false
   });
   const [newQuestions, setNewQuestions] = useState<any[]>([
     { question_text: '', options: ['', '', '', ''], correct_option_index: 0, points: 1, explanation: '' }
   ]);
 
+  const handleSetupDatabase = async () => {
+    setIsSettingUpDB(true);
+    setErrorMsg('');
+    try {
+      console.log('AdminPanel: Starting database setup...');
+      
+      // Try to update current user's role to admin in the database
+      if (user?.id) {
+        console.log('AdminPanel: Attempting to set admin role for:', user.email);
+        const { error: roleError } = await supabase
+          .from('profiles')
+          .update({ role: 'admin' })
+          .eq('id', user.id);
+        
+        if (roleError) {
+          console.warn('AdminPanel: Could not set admin role via client:', roleError.message);
+        } else {
+          console.log('AdminPanel: Admin role set successfully.');
+        }
+      }
+
+      // Create buckets
+      const buckets = ['avatars', 'feedback_images'];
+      for (const bucket of buckets) {
+        console.log(`AdminPanel: Checking bucket ${bucket}...`);
+        const { data, error } = await supabase.storage.createBucket(bucket, {
+          public: true,
+          fileSizeLimit: 5242880, // 5MB
+        });
+        if (error && error.message !== 'Bucket already exists') {
+          console.warn(`Could not create bucket ${bucket}:`, error.message);
+        } else {
+          console.log(`Bucket ${bucket} checked/created.`);
+        }
+      }
+
+      // We can't run DDL (CREATE POLICY) via the client easily, 
+      // but we can inform the user or try to check if it works.
+      alert('Storage buckets checked. If images still do not show, please ensure policies are set in the Supabase Dashboard.');
+    } catch (err: any) {
+      console.error('Setup error:', err);
+      setErrorMsg('Failed to setup database: ' + err.message);
+    } finally {
+      setIsSettingUpDB(false);
+    }
+  };
+
   useEffect(() => {
-    if (user?.email !== 'fllimonm1212@gmail.com') return;
+    console.log('AdminPanel: Current User:', user?.email);
+    if (user?.email !== 'fllimonm1212@gmail.com') {
+      console.warn('AdminPanel: Access denied for user:', user?.email);
+      return;
+    }
 
     const fetchData = async () => {
       setIsLoading(true);
@@ -100,6 +154,7 @@ export default function AdminPanel() {
           }
 
           // Also fetch submissions
+          console.log('AdminPanel: Fetching exam submissions...');
           const { data: subData, error: subError } = await supabase
             .from('exam_submissions')
             .select(`
@@ -110,7 +165,13 @@ export default function AdminPanel() {
             .eq('status', 'completed')
             .order('completed_at', { ascending: false });
           
-          if (!subError) {
+          if (subError) {
+            console.error('AdminPanel: Error fetching submissions:', subError);
+            if (subError.code === '42P01') {
+              setErrorMsg('Exam submissions table does not exist in the database yet.');
+            }
+          } else {
+            console.log('AdminPanel: Fetched submissions count:', subData?.length);
             setSubmissionsList(subData || []);
           }
         } else if (activeTab === 'feedback') {
@@ -191,6 +252,21 @@ export default function AdminPanel() {
     }
   };
 
+  const [editingExamId, setEditingExamId] = useState<string | null>(null);
+
+  const toLocalISOString = (dateStr: string) => {
+    if (!dateStr) return '';
+    try {
+      const date = new Date(dateStr);
+      if (isNaN(date.getTime())) return '';
+      const offset = date.getTimezoneOffset() * 60000;
+      const localDate = new Date(date.getTime() - offset);
+      return localDate.toISOString().slice(0, 16);
+    } catch (e) {
+      return '';
+    }
+  };
+
   const handleCreateExam = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -198,22 +274,53 @@ export default function AdminPanel() {
         throw new Error("Please fill in all required fields.");
       }
 
-      // 1. Insert Exam
-      const { data: examData, error: examError } = await supabase.from('exams').insert([{
+      const totalPoints = newQuestions.reduce((acc, q) => acc + (q.points || 0), 0);
+      const examPayload = {
         title: newExam.title,
         description: newExam.description,
         instructions: newExam.instructions,
         duration_minutes: newExam.duration_minutes,
-        total_points: newQuestions.reduce((acc, q) => acc + q.points, 0),
-        start_time: newExam.start_time || null,
-        end_time: newExam.end_time || null
-      }]).select().single();
+        total_points: totalPoints,
+        start_time: newExam.start_time ? new Date(newExam.start_time).toISOString() : null,
+        end_time: newExam.end_time ? new Date(newExam.end_time).toISOString() : null,
+        passing_percentage: newExam.passing_percentage,
+        is_published: newExam.is_published,
+        randomize_questions: newExam.randomize_questions
+      };
 
-      if (examError) throw examError;
+      let examId = editingExamId;
+
+      if (editingExamId) {
+        // Update existing exam
+        const { error: updateError } = await supabase
+          .from('exams')
+          .update(examPayload)
+          .eq('id', editingExamId);
+        
+        if (updateError) throw updateError;
+
+        // Delete old questions and insert new ones (simpler than syncing)
+        const { error: deleteError } = await supabase
+          .from('exam_questions')
+          .delete()
+          .eq('exam_id', editingExamId);
+        
+        if (deleteError) throw deleteError;
+      } else {
+        // Insert new exam
+        const { data: examData, error: examError } = await supabase
+          .from('exams')
+          .insert([examPayload])
+          .select()
+          .single();
+
+        if (examError) throw examError;
+        examId = examData.id;
+      }
 
       // 2. Insert Questions
       const questionsToInsert = newQuestions.map(q => ({
-        exam_id: examData.id,
+        exam_id: examId,
         question_text: q.question_text,
         options: q.options,
         correct_option_index: q.correct_option_index,
@@ -228,12 +335,66 @@ export default function AdminPanel() {
       const { data } = await supabase.from('exams').select('*').order('created_at', { ascending: false });
       setExamsList(data || []);
       setShowExamForm(false);
-      setNewExam({ title: '', description: '', instructions: '', duration_minutes: 30 });
-      setNewQuestions([{ question_text: '', options: ['', '', '', ''], correct_option_index: 0, points: 1 }]);
+      setEditingExamId(null);
+      setNewExam({ 
+        title: '', 
+        description: '', 
+        instructions: '', 
+        duration_minutes: 30,
+        start_time: '',
+        end_time: '',
+        passing_percentage: 50,
+        is_published: true,
+        randomize_questions: false
+      });
+      setNewQuestions([{ question_text: '', options: ['', '', '', ''], correct_option_index: 0, points: 1, explanation: '' }]);
       setErrorMsg('');
+      toast.success(editingExamId ? "Exam updated successfully!" : "Exam created successfully!");
     } catch (error: any) {
-      console.error("Error creating exam:", error);
-      setErrorMsg(error.message || 'Failed to create exam.');
+      console.error("Error saving exam:", error);
+      setErrorMsg(error.message || 'Failed to save exam.');
+    }
+  };
+
+  const handleEditExam = async (exam: any) => {
+    setEditingExamId(exam.id);
+    setNewExam({
+      title: exam.title || '',
+      description: exam.description || '',
+      instructions: exam.instructions || '',
+      duration_minutes: exam.duration_minutes || 30,
+      start_time: toLocalISOString(exam.start_time),
+      end_time: toLocalISOString(exam.end_time),
+      passing_percentage: exam.passing_percentage ?? 50,
+      is_published: exam.is_published ?? true,
+      randomize_questions: exam.randomize_questions ?? false
+    });
+
+    // Fetch questions for this exam
+    try {
+      const { data, error } = await supabase
+        .from('exam_questions')
+        .select('*')
+        .eq('exam_id', exam.id)
+        .order('created_at', { ascending: true });
+      
+      if (error) throw error;
+      if (data && data.length > 0) {
+        setNewQuestions(data.map(q => ({
+          question_text: q.question_text,
+          options: q.options,
+          correct_option_index: q.correct_option_index,
+          points: q.points,
+          explanation: q.explanation || ''
+        })));
+      } else {
+        setNewQuestions([{ question_text: '', options: ['', '', '', ''], correct_option_index: 0, points: 1, explanation: '' }]);
+      }
+      setShowExamForm(true);
+      // Scroll to form
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (err: any) {
+      alert("Failed to load questions: " + err.message);
     }
   };
 
@@ -464,7 +625,8 @@ export default function AdminPanel() {
           <>
             {/* OVERVIEW TAB */}
             {activeTab === 'overview' && (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="glass-panel p-6 rounded-2xl">
                   <div className="flex items-center gap-4">
                     <div className="w-12 h-12 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-400">
@@ -501,6 +663,45 @@ export default function AdminPanel() {
                   </div>
                 </motion.div>
               </div>
+
+              <div className="mt-8">
+                <motion.div 
+                  initial={{ opacity: 0, y: 20 }} 
+                  animate={{ opacity: 1, y: 0 }} 
+                  transition={{ delay: 0.3 }}
+                  className="glass-panel p-6 rounded-2xl border border-indigo-500/20"
+                >
+                  <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+                    <div>
+                      <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                        <Server size={20} className="text-indigo-400" />
+                        Database & Storage Setup
+                      </h3>
+                      <p className="text-slate-400 text-sm mt-1">
+                        Initialize storage buckets for avatars and feedback images. This will ensure that uploaded pictures are visible.
+                      </p>
+                    </div>
+                    <button
+                      onClick={handleSetupDatabase}
+                      disabled={isSettingUpDB}
+                      className="flex items-center gap-2 px-6 py-3 bg-indigo-500 hover:bg-indigo-600 disabled:bg-indigo-500/50 text-white rounded-xl font-medium transition-all shadow-lg shadow-indigo-500/20"
+                    >
+                      {isSettingUpDB ? (
+                        <>
+                          <Loader2 size={18} className="animate-spin" />
+                          Setting up...
+                        </>
+                      ) : (
+                        <>
+                          <Database size={18} />
+                          Setup Buckets
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </motion.div>
+              </div>
+              </>
             )}
 
             {/* USERS TAB */}
@@ -701,7 +902,10 @@ export default function AdminPanel() {
             {activeTab === 'exams' && (
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
                 <div className="flex justify-between items-center">
-                  <h2 className="text-xl font-bold text-white">Manage Exams</h2>
+                  <div className="flex flex-col">
+                    <h2 className="text-xl font-bold text-white">Manage Exams</h2>
+                    <p className="text-[10px] text-slate-500 mt-0.5">Current Time: {new Date().toLocaleString()}</p>
+                  </div>
                   <button 
                     onClick={() => setShowExamForm(!showExamForm)}
                     className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl transition-colors shadow-lg shadow-indigo-500/20"
@@ -776,6 +980,44 @@ export default function AdminPanel() {
                           className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-indigo-500 min-h-[80px]"
                           placeholder="Instructions for the students before starting..."
                         />
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+                        <div>
+                          <label className="block text-sm font-medium text-slate-400 mb-1">Passing Percentage (%)</label>
+                          <input 
+                            type="number" 
+                            min="0"
+                            max="100"
+                            value={newExam.passing_percentage}
+                            onChange={e => setNewExam({...newExam, passing_percentage: parseInt(e.target.value) || 0})}
+                            className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-indigo-500"
+                          />
+                        </div>
+                        <div className="flex items-center gap-3 pt-6">
+                          <input 
+                            type="checkbox" 
+                            id="is_published"
+                            checked={newExam.is_published}
+                            onChange={e => setNewExam({...newExam, is_published: e.target.checked})}
+                            className="w-5 h-5 rounded border-slate-700 bg-slate-900/50 text-indigo-500 focus:ring-indigo-500"
+                          />
+                          <label htmlFor="is_published" className="text-sm font-medium text-slate-300 cursor-pointer">
+                            Public (Visible in list)
+                          </label>
+                        </div>
+                        <div className="flex items-center gap-3 pt-6">
+                          <input 
+                            type="checkbox" 
+                            id="randomize_questions"
+                            checked={newExam.randomize_questions}
+                            onChange={e => setNewExam({...newExam, randomize_questions: e.target.checked})}
+                            className="w-5 h-5 rounded border-slate-700 bg-slate-900/50 text-indigo-500 focus:ring-indigo-500"
+                          />
+                          <label htmlFor="randomize_questions" className="text-sm font-medium text-slate-300 cursor-pointer">
+                            Randomize Questions
+                          </label>
+                        </div>
                       </div>
 
                       <div className="mt-8">
@@ -946,6 +1188,7 @@ export default function AdminPanel() {
                     <thead>
                       <tr className="bg-slate-900/50 border-b border-slate-800 text-slate-400 text-sm">
                         <th className="px-6 py-4 font-medium">Title</th>
+                        <th className="px-6 py-4 font-medium">Schedule</th>
                         <th className="px-6 py-4 font-medium">Duration</th>
                         <th className="px-6 py-4 font-medium">Total Points</th>
                         <th className="px-6 py-4 font-medium text-right">Actions</th>
@@ -955,16 +1198,44 @@ export default function AdminPanel() {
                       {examsList.map(exam => (
                         <tr key={exam.id} className="hover:bg-slate-800/20 transition-colors">
                           <td className="px-6 py-4 text-white font-medium">{exam.title}</td>
+                          <td className="px-6 py-4 text-slate-300">
+                            <div className="text-xs">
+                              {exam.start_time ? new Date(exam.start_time).toLocaleString() : 'No start'}
+                            </div>
+                            <div className="text-[10px] text-slate-500">
+                              to {exam.end_time ? new Date(exam.end_time).toLocaleString() : 'No end'}
+                            </div>
+                          </td>
                           <td className="px-6 py-4 text-slate-300">{exam.duration_minutes} mins</td>
                           <td className="px-6 py-4 text-slate-300">{exam.total_points}</td>
                           <td className="px-6 py-4 text-right">
-                            <button 
-                              onClick={() => handleDeleteExam(exam.id)}
-                              className="p-2 text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
-                              title="Delete Exam"
-                            >
-                              <Trash2 size={18} />
-                            </button>
+                            <div className="flex justify-end gap-2">
+                              <button 
+                                onClick={() => {
+                                  const url = `${window.location.origin}/exams/${exam.id}`;
+                                  navigator.clipboard.writeText(url);
+                                  toast.success('Exam link copied to clipboard!');
+                                }}
+                                className="p-2 text-emerald-400 hover:bg-emerald-500/10 rounded-lg transition-colors"
+                                title="Copy Exam Link"
+                              >
+                                <Link size={18} />
+                              </button>
+                              <button 
+                                onClick={() => handleEditExam(exam)}
+                                className="p-2 text-indigo-400 hover:bg-indigo-500/10 rounded-lg transition-colors"
+                                title="Edit Exam"
+                              >
+                                <FileText size={18} />
+                              </button>
+                              <button 
+                                onClick={() => handleDeleteExam(exam.id)}
+                                className="p-2 text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
+                                title="Delete Exam"
+                              >
+                                <Trash2 size={18} />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -1001,6 +1272,8 @@ export default function AdminPanel() {
                         {submissionsList.map(sub => {
                           const totalPoints = sub.exams?.total_points || 100;
                           const percentage = Math.round((sub.score / totalPoints) * 100);
+                          const passingPercentage = sub.exams?.passing_percentage ?? 50;
+                          const isPassed = percentage >= passingPercentage;
                           return (
                             <tr key={sub.id} className="hover:bg-slate-800/20 transition-colors">
                               <td className="px-6 py-4">
@@ -1018,25 +1291,36 @@ export default function AdminPanel() {
                                     <div 
                                       className={cn(
                                         "h-full rounded-full",
-                                        percentage >= 80 ? "bg-emerald-500" : percentage >= 50 ? "bg-amber-500" : "bg-rose-500"
+                                        isPassed ? "bg-emerald-500" : "bg-rose-500"
                                       )}
                                       style={{ width: `${percentage}%` }}
                                     />
                                   </div>
                                   <span className={cn(
                                     "text-xs font-bold",
-                                    percentage >= 80 ? "text-emerald-400" : percentage >= 50 ? "text-amber-400" : "text-rose-400"
+                                    isPassed ? "text-emerald-400" : "text-rose-400"
                                   )}>{percentage}%</span>
                                 </div>
                               </td>
-                              <td className="px-6 py-4 text-slate-400 text-sm">
-                                {sub.completed_at ? (
-                                  <>
-                                    {new Date(sub.completed_at).toLocaleDateString()} {new Date(sub.completed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                  </>
-                                ) : (
-                                  'N/A'
-                                )}
+                              <td className="px-6 py-4">
+                                <div className="flex items-center justify-between gap-4">
+                                  <div className="text-slate-400 text-sm">
+                                    {sub.completed_at ? (
+                                      <>
+                                        {new Date(sub.completed_at).toLocaleDateString()}
+                                      </>
+                                    ) : (
+                                      'N/A'
+                                    )}
+                                  </div>
+                                  <button 
+                                    onClick={() => navigate(`/exams/${sub.exam_id}?userId=${sub.user_id}`)}
+                                    className="p-2 text-indigo-400 hover:bg-indigo-500/10 rounded-lg transition-colors"
+                                    title="View Detailed Result"
+                                  >
+                                    <FileText size={18} />
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           );
