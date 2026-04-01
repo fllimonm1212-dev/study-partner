@@ -16,6 +16,25 @@ export default function Exams() {
   const [leaderboardData, setLeaderboardData] = useState<any[]>([]);
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
   const [leaderboardError, setLeaderboardError] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const checkAdmin = async () => {
+      const { data } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+      
+      if (data?.role === 'admin') {
+        setIsAdmin(true);
+      }
+    };
+
+    checkAdmin();
+  }, [user]);
 
   useEffect(() => {
     if (!user) return;
@@ -360,6 +379,10 @@ export default function Exams() {
                         : '0';
                       const passingPercentage = exam?.passing_percentage ?? 50;
                       const isPassed = Number(percentage) >= passingPercentage;
+                      const canViewAnswers = isAdmin || 
+                        (exam?.show_answers_after === 'immediately') || 
+                        (!exam?.end_time) || 
+                        (new Date() >= new Date(exam.end_time));
                       const date = new Date(submission.completed_at || submission.created_at).toLocaleDateString('en-US', {
                         year: 'numeric',
                         month: 'short',
@@ -391,7 +414,7 @@ export default function Exams() {
                               onClick={() => navigate(`/exams/${submission.exam_id}`)}
                               className="text-indigo-400 hover:text-indigo-300 font-medium transition-colors"
                             >
-                              View Details
+                              {canViewAnswers ? 'View Details' : 'View Score'}
                             </button>
                           </td>
                         </tr>

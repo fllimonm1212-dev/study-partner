@@ -421,8 +421,11 @@ export default function TakeExam() {
 
   if (isSubmitted && result) {
     const totalPoints = result.total_points || 1;
-    const percentage = (result.score / totalPoints) * 100;
-    const canViewAnswers = isAdmin || !exam?.end_time || new Date() >= new Date(exam.end_time);
+    const percentage = totalPoints > 0 ? (result.score / totalPoints) * 100 : 0;
+    const canViewAnswers = isAdmin || 
+      (exam?.show_answers_after === 'immediately') || 
+      (!exam?.end_time) || 
+      (new Date() >= new Date(exam.end_time));
     const passingPercentage = exam?.passing_percentage ?? 50;
     const isPassed = percentage >= passingPercentage;
 
@@ -685,205 +688,114 @@ export default function TakeExam() {
   const currentQuestion = questions[currentQuestionIndex];
 
   return (
-    <div className="max-w-5xl mx-auto flex gap-8">
-      {/* Sidebar Navigation */}
-      <div className={`fixed inset-y-0 left-0 z-40 w-64 bg-slate-950 border-r border-slate-800 transform transition-transform duration-300 lg:relative lg:translate-x-0 ${showSidebar ? 'translate-x-0' : '-translate-x-full'}`}>
-        <div className="p-6 h-full flex flex-col">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-bold text-white">Questions</h3>
-            <button onClick={() => setShowSidebar(false)} className="lg:hidden text-slate-400 hover:text-white">
-              <XCircle size={20} />
-            </button>
-          </div>
-          
-          <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
-            <div className="grid grid-cols-4 gap-2">
-              {questions.map((q, idx) => {
-                const isAnswered = answers[q.id] !== undefined;
-                const isCurrent = idx === currentQuestionIndex;
-                
-                return (
-                  <button
-                    key={q.id}
-                    onClick={() => {
-                      setCurrentQuestionIndex(idx);
-                      if (window.innerWidth < 1024) setShowSidebar(false);
-                    }}
-                    className={`h-10 w-10 rounded-lg flex items-center justify-center text-sm font-bold transition-all ${
-                      isCurrent 
-                        ? 'bg-indigo-600 text-white ring-2 ring-indigo-500 ring-offset-2 ring-offset-slate-950' 
-                        : isAnswered 
-                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' 
-                          : 'bg-slate-900 text-slate-500 border border-slate-800 hover:border-slate-600'
-                    }`}
-                  >
-                    {idx + 1}
-                  </button>
-                );
-              })}
+    <div className="max-w-4xl mx-auto px-4 pb-20">
+      {/* Sticky Header with Timer and Submit */}
+      <div className="sticky top-0 z-50 bg-slate-950/80 backdrop-blur-md border-b border-slate-800 -mx-4 px-4 py-4 mb-8">
+        <div className="flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <h1 className="text-lg sm:text-xl font-bold text-white truncate">{exam.title}</h1>
+            <div className="flex items-center gap-3 mt-1">
+              <span className="text-xs text-slate-400 font-medium">
+                {questions.length} Questions • {exam.duration_minutes} Mins
+              </span>
+              {isSaving && (
+                <span className="text-[10px] text-emerald-400 font-medium animate-pulse">Draft saved...</span>
+              )}
             </div>
           </div>
           
-          <div className="mt-6 pt-6 border-t border-slate-800 space-y-4">
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 text-xs text-slate-500">
-                <div className="w-3 h-3 rounded bg-emerald-500/20 border border-emerald-500/30" />
-                <span>Answered ({Object.keys(answers).length})</span>
-              </div>
-              <div className="flex items-center gap-2 text-xs text-slate-500">
-                <div className="w-3 h-3 rounded bg-slate-900 border border-slate-800" />
-                <span>Unanswered ({questions.length - Object.keys(answers).length})</span>
-              </div>
-            </div>
-
-            <button
-              onClick={() => setShowConfirmDialog(true)}
-              disabled={submitting}
-              className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-xl transition-all shadow-lg shadow-emerald-500/20 mt-4"
-            >
-              <CheckCircle2 size={18} />
-              Submit Exam
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Main Content */}
-      <div className="flex-1 min-w-0">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8 glass-panel p-4 rounded-2xl sticky top-4 z-10">
-          <div className="flex items-center gap-4">
-            <button 
-              onClick={() => setShowSidebar(true)}
-              className="lg:hidden p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg"
-            >
-              <FileText size={20} />
-            </button>
-            <div>
-              <h1 className="text-xl font-bold text-white truncate max-w-[200px] sm:max-w-md">{exam.title}</h1>
-              <p className="text-sm text-slate-400">Question {currentQuestionIndex + 1} of {questions.length}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3 shrink-0">
             {timeLeft !== null && (
-              <div className="flex flex-col items-end gap-1">
-                <div className={`flex items-center gap-2 px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl font-mono text-sm sm:text-lg font-bold ${timeLeft < 60 ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30 animate-pulse' : 'bg-slate-800 text-slate-200'}`}>
-                  <Clock size={16} className="sm:w-5 sm:h-5" />
-                  {formatTime(timeLeft)}
-                </div>
-                {isSaving && (
-                  <span className="text-[10px] text-emerald-400 font-medium animate-pulse hidden sm:inline">Draft saved...</span>
-                )}
+              <div className={`flex items-center gap-2 px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl font-mono text-sm sm:text-lg font-bold ${timeLeft < 60 ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30 animate-pulse' : 'bg-slate-800 text-slate-200 border border-slate-700'}`}>
+                <Clock size={16} className="sm:w-5 sm:h-5" />
+                {formatTime(timeLeft)}
               </div>
             )}
             <button
               onClick={() => setShowConfirmDialog(true)}
               disabled={submitting}
-              className="lg:hidden p-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl transition-colors disabled:opacity-50"
-              title="Submit Exam"
+              className="flex items-center gap-2 px-4 py-2 sm:px-6 sm:py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-xl transition-all shadow-lg shadow-emerald-500/20"
             >
-              <CheckCircle2 size={20} />
+              <CheckCircle2 size={18} className="hidden sm:inline" />
+              {submitting ? '...' : 'Submit'}
             </button>
           </div>
         </div>
-
-        {/* Question Card */}
-        <motion.div 
-          key={currentQuestionIndex}
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          className="glass-panel p-8 rounded-2xl mb-6"
-        >
-        <div className="flex justify-between items-start mb-6">
-          <h2 className="text-xl font-medium text-white leading-relaxed">
-            {currentQuestion.question_text}
-          </h2>
-          <span className="bg-indigo-500/10 text-indigo-400 px-3 py-1 rounded-lg text-sm font-bold whitespace-nowrap ml-4">
-            {currentQuestion.points} pts
-          </span>
-        </div>
-
-        <div className="space-y-3">
-          {currentQuestion.options.map((option: string, index: number) => (
-            <motion.button
-              whileHover={{ scale: 1.01, x: 4 }}
-              whileTap={{ scale: 0.98 }}
-              key={index}
-              onClick={() => handleAnswerSelect(currentQuestion.id, index)}
-              className={`w-full text-left p-4 rounded-xl border transition-colors ${
-                answers[currentQuestion.id] === index
-                  ? 'bg-indigo-500/20 border-indigo-500 text-white'
-                  : 'bg-slate-900/50 border-slate-700 text-slate-300 hover:bg-slate-800 hover:border-slate-600'
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <motion.div 
-                  animate={{ 
-                    scale: answers[currentQuestion.id] === index ? [1, 1.2, 1] : 1,
-                    backgroundColor: answers[currentQuestion.id] === index ? '#6366f1' : 'transparent',
-                    borderColor: answers[currentQuestion.id] === index ? '#6366f1' : '#475569',
-                    color: answers[currentQuestion.id] === index ? '#ffffff' : '#94a3b8'
-                  }}
-                  transition={{ duration: 0.2 }}
-                  className="w-6 h-6 rounded-full border flex items-center justify-center text-xs font-bold"
-                >
-                  {String.fromCharCode(65 + index)}
-                </motion.div>
-                {option}
-              </div>
-            </motion.button>
-          ))}
-        </div>
-      </motion.div>
-
-      {/* Navigation */}
-      <div className="flex items-center justify-between">
-        <button
-          onClick={() => setCurrentQuestionIndex(prev => Math.max(0, prev - 1))}
-          disabled={currentQuestionIndex === 0}
-          className="flex items-center gap-2 px-5 py-2.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl transition-colors"
-        >
-          <ChevronLeft size={18} />
-          Previous
-        </button>
-
-        {currentQuestionIndex === questions.length - 1 ? (
-          <button
-            onClick={() => setShowConfirmDialog(true)}
-            disabled={submitting}
-            className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-colors"
-          >
-            {submitting ? 'Submitting...' : 'Submit Exam'}
-            <CheckCircle2 size={18} />
-          </button>
-        ) : (
-          <button
-            onClick={() => setCurrentQuestionIndex(prev => Math.min(questions.length - 1, prev + 1))}
-            className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl transition-colors"
-          >
-            Next
-            <ChevronRight size={18} />
-          </button>
-        )}
-      </div>
-      
-      {/* Progress Bar */}
-      <div className="mt-8 flex gap-1">
-        {questions.map((q, idx) => (
-          <div 
-            key={q.id} 
-            onClick={() => setCurrentQuestionIndex(idx)}
-            className={`h-2 flex-1 rounded-full cursor-pointer transition-colors ${
-              idx === currentQuestionIndex ? 'bg-indigo-500' : 
-              answers[q.id] !== undefined ? 'bg-emerald-500/50' : 'bg-slate-800'
-            }`}
+        
+        {/* Progress Bar */}
+        <div className="mt-4 h-1.5 w-full bg-slate-900 rounded-full overflow-hidden border border-slate-800">
+          <motion.div 
+            initial={{ width: 0 }}
+            animate={{ width: `${questions.length > 0 ? (Object.keys(answers).length / questions.length) * 100 : 0}%` }}
+            className="h-full bg-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.5)]"
           />
+        </div>
+      </div>
+
+      {/* Questions List */}
+      <div className="space-y-8">
+        {questions.map((q, idx) => (
+          <motion.div 
+            key={q.id}
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: "-100px" }}
+            className="glass-panel p-6 sm:p-8 rounded-2xl"
+            id={`question-${idx}`}
+          >
+            <div className="flex justify-between items-start mb-6">
+              <div className="flex gap-4">
+                <span className="flex-shrink-0 w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center text-sm font-bold text-slate-300">
+                  {idx + 1}
+                </span>
+                <h2 className="text-lg sm:text-xl font-medium text-white leading-relaxed">
+                  {q.question_text}
+                </h2>
+              </div>
+              <span className="bg-indigo-500/10 text-indigo-400 px-3 py-1 rounded-lg text-sm font-bold whitespace-nowrap ml-4">
+                {q.points} pts
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 ml-0 sm:ml-12">
+              {q.options.map((option: string, optIdx: number) => (
+                <button
+                  key={optIdx}
+                  onClick={() => handleAnswerSelect(q.id, optIdx)}
+                  className={`w-full text-left p-4 rounded-xl border transition-all duration-200 flex items-center gap-4 ${
+                    answers[q.id] === optIdx
+                      ? 'bg-indigo-500/20 border-indigo-500 text-white shadow-[0_0_15px_rgba(99,102,241,0.1)]'
+                      : 'bg-slate-900/50 border-slate-700 text-slate-300 hover:bg-slate-800 hover:border-slate-600'
+                  }`}
+                >
+                  <div className={`w-6 h-6 rounded-full border flex items-center justify-center text-xs font-bold shrink-0 transition-colors ${
+                    answers[q.id] === optIdx ? 'bg-indigo-500 border-indigo-500 text-white' : 'border-slate-600 text-slate-500'
+                  }`}>
+                    {String.fromCharCode(65 + optIdx)}
+                  </div>
+                  <span className="text-sm sm:text-base">{option}</span>
+                </button>
+              ))}
+            </div>
+          </motion.div>
         ))}
+      </div>
+
+      {/* Bottom Submit Button */}
+      <div className="mt-12 flex justify-center">
+        <button
+          onClick={() => setShowConfirmDialog(true)}
+          disabled={submitting}
+          className="flex items-center gap-3 px-10 py-4 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-2xl transition-all shadow-xl shadow-emerald-500/20 hover:scale-105 active:scale-95"
+        >
+          <CheckCircle2 size={24} />
+          {submitting ? 'Submitting Exam...' : 'Finish & Submit Exam'}
+        </button>
       </div>
 
       {/* Confirmation Dialog */}
       {showConfirmDialog && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
           <motion.div 
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -924,7 +836,6 @@ export default function TakeExam() {
           </motion.div>
         </div>
       )}
-      </div>
     </div>
   );
 }

@@ -40,7 +40,8 @@ export default function AdminPanel() {
   const [newExam, setNewExam] = useState({
     title: '', description: '', instructions: '', duration_minutes: 30, start_time: '', end_time: '',
     passing_percentage: 50, is_published: true, randomize_questions: false,
-    negative_marking_enabled: false, negative_marking_penalty: 0.25
+    negative_marking_enabled: false, negative_marking_penalty: 0.25,
+    show_answers_after: 'immediately'
   });
   const [newQuestions, setNewQuestions] = useState<any[]>([
     { question_text: '', options: ['', '', '', ''], correct_option_index: 0, points: 1, explanation: '' }
@@ -288,7 +289,8 @@ export default function AdminPanel() {
         is_published: newExam.is_published,
         randomize_questions: newExam.randomize_questions,
         negative_marking_enabled: newExam.negative_marking_enabled,
-        negative_marking_penalty: newExam.negative_marking_penalty
+        negative_marking_penalty: newExam.negative_marking_penalty,
+        show_answers_after: newExam.show_answers_after
       };
 
       let examId = editingExamId;
@@ -350,7 +352,8 @@ export default function AdminPanel() {
         is_published: true,
         randomize_questions: false,
         negative_marking_enabled: false,
-        negative_marking_penalty: 0.25
+        negative_marking_penalty: 0.25,
+        show_answers_after: 'immediately'
       });
       setNewQuestions([{ question_text: '', options: ['', '', '', ''], correct_option_index: 0, points: 1, explanation: '' }]);
       setErrorMsg('');
@@ -374,7 +377,8 @@ export default function AdminPanel() {
       is_published: exam.is_published ?? true,
       randomize_questions: exam.randomize_questions ?? false,
       negative_marking_enabled: exam.negative_marking_enabled ?? false,
-      negative_marking_penalty: exam.negative_marking_penalty ?? 0.25
+      negative_marking_penalty: exam.negative_marking_penalty ?? 0.25,
+      show_answers_after: exam.show_answers_after || 'immediately'
     });
 
     // Fetch questions for this exam
@@ -1055,6 +1059,20 @@ export default function AdminPanel() {
                         )}
                       </div>
 
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                        <div>
+                          <label className="block text-sm font-medium text-slate-400 mb-1">Show Answers & Results</label>
+                          <select 
+                            value={newExam.show_answers_after}
+                            onChange={e => setNewExam({...newExam, show_answers_after: e.target.value})}
+                            className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-indigo-500"
+                          >
+                            <option value="immediately">Immediately after submission</option>
+                            <option value="end_time">Only after exam end time</option>
+                          </select>
+                        </div>
+                      </div>
+
                       <div className="mt-8">
                         <div className="flex flex-col gap-4 mb-6 p-4 bg-slate-900/50 border border-slate-800 rounded-xl">
                           <h4 className="text-md font-medium text-white">Auto-Generate Questions</h4>
@@ -1306,7 +1324,7 @@ export default function AdminPanel() {
                       <tbody className="divide-y divide-slate-800/50">
                         {submissionsList.map(sub => {
                           const totalPoints = sub.exams?.total_points || 100;
-                          const percentage = Math.round((sub.score / totalPoints) * 100);
+                          const percentage = totalPoints > 0 ? Math.round((sub.score / totalPoints) * 100) : 0;
                           const passingPercentage = sub.exams?.passing_percentage ?? 50;
                           const isPassed = percentage >= passingPercentage;
                           return (
