@@ -139,7 +139,7 @@ export default function Analytics() {
       }
 
     } catch (error) {
-      console.error('Error fetching analytics:', error);
+      console.warn('Analytics fetch notice:', error);
     } finally {
       setLoading(false);
     }

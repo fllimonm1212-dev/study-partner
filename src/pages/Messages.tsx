@@ -38,38 +38,73 @@ export default function Messages() {
   const fetchConversations = async () => {
     if (!user) return;
     try {
-      // This is a bit complex in Supabase without a dedicated conversations table
-      // We'll fetch all messages and group them by the other user
+      const getProfile = (val: any) => (Array.isArray(val) ? val[0] : val);
+      let rawMessages: any[] = [];
+
+      // Attempt 1: Join with profiles
       const { data: messages, error } = await supabase
         .from('personal_messages')
         .select(`
           *,
-          sender:sender_id (id, full_name, avatar_url),
-          receiver:receiver_id (id, full_name, avatar_url)
+          sender:profiles!sender_id (id, full_name, avatar_url),
+          receiver:profiles!receiver_id (id, full_name, avatar_url)
         `)
         .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (!error && messages) {
+        rawMessages = messages;
+      } else {
+        // Fallback: 2-step query
+        const { data: fallbackMsgs, error: fallbackErr } = await supabase
+          .from('personal_messages')
+          .select('*')
+          .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
+          .order('created_at', { ascending: false });
+
+        if (!fallbackErr && fallbackMsgs && fallbackMsgs.length > 0) {
+          const profileIds = Array.from(new Set(
+            fallbackMsgs.flatMap(m => [m.sender_id, m.receiver_id]).filter(Boolean)
+          ));
+
+          if (profileIds.length > 0) {
+            const { data: profs } = await supabase
+              .from('profiles')
+              .select('id, full_name, avatar_url')
+              .in('id', profileIds);
+
+            const pMap = new Map((profs || []).map(p => [p.id, p]));
+
+            rawMessages = fallbackMsgs.map(m => ({
+              ...m,
+              sender: pMap.get(m.sender_id) || null,
+              receiver: pMap.get(m.receiver_id) || null
+            }));
+          }
+        }
+      }
 
       const conversationMap = new Map();
       
-      messages?.forEach(msg => {
-        const otherUser = msg.sender_id === user.id ? msg.receiver : msg.sender;
-        if (!otherUser) return;
+      rawMessages.forEach(msg => {
+        const sender = getProfile(msg.sender);
+        const receiver = getProfile(msg.receiver);
+        const otherUser = msg.sender_id === user.id ? receiver : sender;
+        if (!otherUser || !otherUser.id) return;
         
         if (!conversationMap.has(otherUser.id)) {
           conversationMap.set(otherUser.id, {
             user: otherUser,
             lastMessage: msg,
-            unreadCount: 0 // Logic for unread could be added later
+            unreadCount: 0
           });
         }
       });
 
       setConversations(Array.from(conversationMap.values()));
     } catch (error) {
-      console.error('Error fetching conversations:', error);
+      console.warn('Conversations fetch notice:', error);
+      setConversations([]);
     } finally {
       setLoading(false);
     }

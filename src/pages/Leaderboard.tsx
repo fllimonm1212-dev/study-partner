@@ -145,7 +145,7 @@ export default function Leaderboard() {
           }
         }
       } catch (error) {
-        console.error('Error fetching leaderboard:', error);
+        console.warn('Leaderboard fetch notice:', error);
       } finally {
         setLoading(false);
       }

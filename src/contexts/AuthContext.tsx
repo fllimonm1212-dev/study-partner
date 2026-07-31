@@ -31,7 +31,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           console.error('Session error:', error.message);
           if (error.message.includes('Refresh Token Not Found')) {
             // Clear local storage if refresh token is missing
-            localStorage.removeItem('sb-ufrzkfkboilpanvreulf-auth-token');
+            for (let i = 0; i < localStorage.length; i++) {
+              const key = localStorage.key(i);
+              if (key && (key.startsWith('sb-') && key.endsWith('-auth-token'))) {
+                localStorage.removeItem(key);
+              }
+            }
           }
           setSession(null);
           setUser(null);

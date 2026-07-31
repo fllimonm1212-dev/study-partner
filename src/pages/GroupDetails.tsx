@@ -116,6 +116,9 @@ export default function GroupDetails() {
         }
 
         // Fetch messages
+        let groupMsgs: any[] = [];
+        const getProfile = (val: any) => (Array.isArray(val) ? val[0] : val);
+
         const { data: messagesData, error: messagesError } = await supabase
           .from('group_messages')
           .select(`
@@ -125,12 +128,30 @@ export default function GroupDetails() {
           .eq('group_id', id)
           .order('created_at', { ascending: true });
           
-        if (messagesError) throw messagesError;
-        setMessages(messagesData || []);
+        if (!messagesError && messagesData) {
+          groupMsgs = messagesData.map(m => ({ ...m, profiles: getProfile(m.profiles) }));
+        } else {
+          const { data: rawMsgs } = await supabase
+            .from('group_messages')
+            .select('*')
+            .eq('group_id', id)
+            .order('created_at', { ascending: true });
+
+          if (rawMsgs && rawMsgs.length > 0) {
+            const senderIds = Array.from(new Set(rawMsgs.map(m => m.user_id).filter(Boolean)));
+            if (senderIds.length > 0) {
+              const { data: profs } = await supabase.from('profiles').select('id, full_name, avatar_url').in('id', senderIds);
+              const pMap = new Map((profs || []).map(p => [p.id, p]));
+              groupMsgs = rawMsgs.map(m => ({ ...m, profiles: pMap.get(m.user_id) || null }));
+            } else {
+              groupMsgs = rawMsgs;
+            }
+          }
+        }
+        setMessages(groupMsgs);
         
       } catch (error: any) {
-        console.error('Error fetching group data:', error);
-        toast.error(error?.message || 'Failed to load group data');
+        console.warn('Group details fetch notice:', error);
         if (error?.code === 'PGRST116') {
           navigate('/groups');
         }

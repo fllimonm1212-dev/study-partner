@@ -47,33 +47,72 @@ export default function FriendsSidebar({ activeUsers }: FriendsSidebarProps) {
   const fetchFriends = async () => {
     if (!user) return;
     try {
+      let friendsList: any[] = [];
+      const getProfile = (val: any) => (Array.isArray(val) ? val[0] : val);
+
+      // Attempt 1: Try PostgREST relationship join
       const { data, error } = await supabase
         .from('friend_requests')
         .select(`
           *,
-          sender:sender_id (id, full_name, avatar_url, total_stars),
-          receiver:receiver_id (id, full_name, avatar_url, total_stars)
+          sender:profiles!sender_id (id, full_name, avatar_url, total_stars),
+          receiver:profiles!receiver_id (id, full_name, avatar_url, total_stars)
         `)
         .eq('status', 'accepted')
         .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`);
 
-      if (error) throw error;
+      if (!error && data) {
+        friendsList = data
+          .map(r => {
+            const sender = getProfile(r.sender);
+            const receiver = getProfile(r.receiver);
+            const friendProfile = r.sender_id === user.id ? receiver : sender;
+            if (!friendProfile) return null;
+            return { ...friendProfile, friendship_id: r.id };
+          })
+          .filter(Boolean);
+      } else {
+        // Fallback: 2-step query if schema cache / FK join fails
+        const { data: rawRequests, error: reqError } = await supabase
+          .from('friend_requests')
+          .select('*')
+          .eq('status', 'accepted')
+          .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`);
 
-      const friendsList = data.map(r => {
-        const friendProfile = r.sender_id === user.id ? r.receiver : r.sender;
-        return { ...friendProfile, friendship_id: r.id };
-      });
+        if (!reqError && rawRequests && rawRequests.length > 0) {
+          const targetIds = Array.from(new Set(
+            rawRequests.flatMap(r => [r.sender_id, r.receiver_id]).filter(id => id && id !== user.id)
+          ));
+
+          if (targetIds.length > 0) {
+            const { data: profilesData } = await supabase
+              .from('profiles')
+              .select('id, full_name, avatar_url, total_stars')
+              .in('id', targetIds);
+
+            const profilesMap = new Map((profilesData || []).map(p => [p.id, p]));
+
+            friendsList = rawRequests.map(r => {
+              const friendId = r.sender_id === user.id ? r.receiver_id : r.sender_id;
+              const friendProfile = profilesMap.get(friendId);
+              if (!friendProfile) return null;
+              return { ...friendProfile, friendship_id: r.id };
+            }).filter(Boolean);
+          }
+        }
+      }
 
       setFriends(friendsList);
     } catch (error) {
-      console.error('Error fetching friends for sidebar:', error);
+      console.warn('Friends sidebar fetch notice:', error);
+      setFriends([]);
     } finally {
       setLoading(false);
     }
   };
 
   const filteredFriends = friends.filter(f => 
-    f.full_name.toLowerCase().includes(searchQuery.toLowerCase())
+    (f?.full_name || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const getFriendStatus = (friendId: string) => {

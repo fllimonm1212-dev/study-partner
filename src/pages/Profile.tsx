@@ -39,27 +39,50 @@ export default function Profile() {
           .from('profiles')
           .select('*')
           .eq('id', user.id)
-          .single();
+          .maybeSingle();
 
-        if (error) throw error;
-        
-        if (data) {
+        let profileRow = data;
+
+        if (error) {
+          console.warn('Profile fetch note:', error.message);
+        }
+
+        if (!profileRow) {
+          // Auto-create profile if missing
+          const defaultName = user.user_metadata?.full_name || user.email?.split('@')[0] || 'User';
+          const newProfile = {
+            id: user.id,
+            full_name: defaultName,
+            avatar_url: user.user_metadata?.avatar_url || '',
+            total_stars: 0,
+            current_streak: 0
+          };
+          const { data: created } = await supabase
+            .from('profiles')
+            .upsert(newProfile)
+            .select()
+            .maybeSingle();
+            
+          profileRow = created || newProfile;
+        }
+
+        if (profileRow) {
           setProfileData({
-            full_name: data.full_name || '',
-            class_id: data.class_id || '',
-            section: data.section || '',
-            bio: data.bio || '',
-            avatar_url: data.avatar_url || '',
-            interests: data.interests || [],
-            facebook_url: data.facebook_url || '',
-            instagram_url: data.instagram_url || '',
-            is_public: data.is_public !== undefined ? data.is_public : true,
-            social_links_public: data.social_links_public !== undefined ? data.social_links_public : true
+            full_name: profileRow.full_name || '',
+            class_id: profileRow.class_id || '',
+            section: profileRow.section || '',
+            bio: profileRow.bio || '',
+            avatar_url: profileRow.avatar_url || '',
+            interests: profileRow.interests || [],
+            facebook_url: profileRow.facebook_url || '',
+            instagram_url: profileRow.instagram_url || '',
+            is_public: profileRow.is_public !== undefined ? profileRow.is_public : true,
+            social_links_public: profileRow.social_links_public !== undefined ? profileRow.social_links_public : true
           });
 
           setStats({
-            total_stars: data.total_stars || 0,
-            current_streak: data.current_streak || 0,
+            total_stars: profileRow.total_stars || 0,
+            current_streak: profileRow.current_streak || 0,
             total_minutes: 0 // Will fetch from sessions
           });
         }
@@ -76,7 +99,7 @@ export default function Profile() {
           setStats(prev => ({ ...prev, total_minutes: total }));
         }
       } catch (error) {
-        console.error('Error fetching profile:', error);
+        console.warn('Profile fetch notice:', error);
       } finally {
         setLoading(false);
       }

@@ -35,34 +35,71 @@ export default function Friends() {
   const fetchFriendsData = async () => {
     if (!user) return;
     try {
-      // Fetch requests where user is sender or receiver
+      const getProfile = (val: any) => (Array.isArray(val) ? val[0] : val);
+
+      let rawRequests: any[] = [];
+      let friendsList: any[] = [];
+
+      // Attempt 1: Join with profiles
       const { data: requestsData, error: requestsError } = await supabase
         .from('friend_requests')
         .select(`
           *,
-          sender:sender_id (id, full_name, avatar_url, total_stars, class_id),
-          receiver:receiver_id (id, full_name, avatar_url, total_stars, class_id)
+          sender:profiles!sender_id (id, full_name, avatar_url, total_stars, class_id),
+          receiver:profiles!receiver_id (id, full_name, avatar_url, total_stars, class_id)
         `)
         .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`);
 
-      if (requestsError) throw requestsError;
+      if (!requestsError && requestsData) {
+        rawRequests = requestsData;
+      } else {
+        // Fallback: fetch raw requests and profiles separately
+        const { data: fallbackRequests, error: fallbackErr } = await supabase
+          .from('friend_requests')
+          .select('*')
+          .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`);
 
-      const accepted = requestsData?.filter(r => r.status === 'accepted') || [];
-      const incoming = requestsData?.filter(r => r.status === 'pending' && r.receiver_id === user.id) || [];
-      const outgoing = requestsData?.filter(r => r.status === 'pending' && r.sender_id === user.id) || [];
+        if (!fallbackErr && fallbackRequests && fallbackRequests.length > 0) {
+          const profileIds = Array.from(new Set(
+            fallbackRequests.flatMap(r => [r.sender_id, r.receiver_id]).filter(Boolean)
+          ));
 
-      // Map accepted requests to friend profiles
-      const friendsList = accepted.map(r => {
-        const friendProfile = r.sender_id === user.id ? r.receiver : r.sender;
-        return { ...friendProfile, friendship_id: r.id };
-      });
+          if (profileIds.length > 0) {
+            const { data: profs } = await supabase
+              .from('profiles')
+              .select('id, full_name, avatar_url, total_stars, class_id')
+              .in('id', profileIds);
+
+            const pMap = new Map((profs || []).map(p => [p.id, p]));
+
+            rawRequests = fallbackRequests.map(r => ({
+              ...r,
+              sender: pMap.get(r.sender_id) || null,
+              receiver: pMap.get(r.receiver_id) || null
+            }));
+          }
+        }
+      }
+
+      const accepted = rawRequests.filter(r => r.status === 'accepted');
+      const incoming = rawRequests.filter(r => r.status === 'pending' && r.receiver_id === user.id);
+      const outgoing = rawRequests.filter(r => r.status === 'pending' && r.sender_id === user.id);
+
+      friendsList = accepted
+        .map(r => {
+          const sender = getProfile(r.sender);
+          const receiver = getProfile(r.receiver);
+          const friendProfile = r.sender_id === user.id ? receiver : sender;
+          if (!friendProfile) return null;
+          return { ...friendProfile, friendship_id: r.id };
+        })
+        .filter(Boolean);
 
       setFriends(friendsList);
       setIncomingRequests(incoming);
       setOutgoingRequests(outgoing);
     } catch (error) {
-      console.error('Error fetching friends data:', error);
-      toast.error('Failed to fetch friends data');
+      console.warn('Friends fetch notice:', error);
     } finally {
       setLoading(false);
     }

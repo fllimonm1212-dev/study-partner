@@ -15,8 +15,12 @@ export default function Layout() {
   useEffect(() => {
     if (!user) return;
     const fetchProfile = async () => {
-      const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single();
-      setProfile(data || {});
+      try {
+        const { data } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
+        setProfile(data || {});
+      } catch (e) {
+        setProfile({});
+      }
     };
     fetchProfile();
   }, [user]);
@@ -40,7 +44,6 @@ export default function Layout() {
       const users: any[] = [];
       for (const id in newState) {
         const userState = newState[id][0] as any;
-        // Only show users who are actively running a timer
         if (userState && userState.is_running) {
           users.push(userState);
         }
@@ -82,7 +85,6 @@ export default function Layout() {
       }
     };
 
-    // Initial update and poll every 2 seconds
     const interval = setInterval(updatePresence, 2000);
 
     return () => {
@@ -109,3 +111,4 @@ export default function Layout() {
     </div>
   );
 }
+

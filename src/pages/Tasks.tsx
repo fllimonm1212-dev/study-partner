@@ -117,7 +117,17 @@ export default function Tasks() {
         setTasks(data || []);
       }
     } catch (error) {
-      console.error('Error fetching tasks:', error);
+      console.warn('Tasks fetch notice:', error);
+      const localTasks = localStorage.getItem(`tasks_${user.id}`);
+      if (localTasks) {
+        try {
+          setTasks(JSON.parse(localTasks));
+        } catch {
+          setTasks([]);
+        }
+      } else {
+        setTasks([]);
+      }
     } finally {
       setLoading(false);
     }

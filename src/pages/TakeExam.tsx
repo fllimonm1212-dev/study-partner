@@ -110,9 +110,14 @@ export default function TakeExam() {
           .from('exams')
           .select('*')
           .eq('id', id)
-          .single();
+          .maybeSingle();
 
-        if (examError) throw examError;
+        if (examError || !examData) {
+          console.warn("Exam query notice:", examError);
+          toast.error("Exam not found or unavailable.");
+          navigate('/exams');
+          return;
+        }
         
         // Check availability
         const now = new Date();
@@ -122,7 +127,7 @@ export default function TakeExam() {
         // Only block access if the user hasn't completed the exam and isn't an admin viewing someone else's result
         if (existingSub?.status !== 'completed' && targetUserId === user.id) {
           // Check if admin (we need to wait for isAdmin state, or fetch it here to be safe)
-          const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
+          const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle();
           const userIsAdmin = profile?.role === 'admin';
 
           if (startTime && startTime > now && !userIsAdmin) {
@@ -147,7 +152,9 @@ export default function TakeExam() {
           .eq('exam_id', id)
           .order('created_at', { ascending: true });
 
-        if (questionsError) throw questionsError;
+        if (questionsError) {
+          console.warn("Exam questions query notice:", questionsError);
+        }
         
         let finalQuestions = questionsData || [];
         
@@ -187,7 +194,7 @@ export default function TakeExam() {
           }
         }
       } catch (error) {
-        console.error("Error fetching exam:", error);
+        console.warn("TakeExam fetch notice:", error);
         toast.error("Failed to load exam.");
         navigate('/exams');
       } finally {

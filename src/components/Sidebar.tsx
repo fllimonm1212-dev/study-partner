@@ -63,7 +63,7 @@ export default function Sidebar({ isOpen, onClose }: { isOpen?: boolean; onClose
         .from('profiles')
         .select('*')
         .eq('id', user.id)
-        .single();
+        .maybeSingle();
       
       if (data) setProfile(data);
     };

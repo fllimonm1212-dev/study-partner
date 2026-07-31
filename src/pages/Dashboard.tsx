@@ -200,10 +200,22 @@ export default function Dashboard() {
     const isCounted = stateRef.current.activeType !== 'break';
 
     try {
+      // Ensure profile exists for FK requirement on study_sessions
+      const defaultName = user.user_metadata?.full_name || user.email?.split('@')[0] || 'User';
+      const { data: profile } = await supabase
+        .from('profiles')
+        .upsert({
+          id: user.id,
+          full_name: defaultName,
+          avatar_url: user.user_metadata?.avatar_url || ''
+        }, { onConflict: 'id' })
+        .select('total_stars, current_streak, last_study_date')
+        .maybeSingle();
+
       const { error } = await supabase.from('study_sessions').insert({
         user_id: user.id,
         subject_id: 'General', // Default subject for dashboard timer
-        activity_type: stateRef.current.activeType,
+        activity_type: stateRef.current.activeType || 'Study',
         duration_minutes: durationMinutes,
         start_time: stateRef.current.sessionStartTime?.toISOString() || new Date(Date.now() - finalElapsed * 1000).toISOString(),
         end_time: new Date().toISOString(),
@@ -215,13 +227,6 @@ export default function Dashboard() {
       // Update streak and stars (1 star per 10 minutes of study, at least 15 mins for streak)
       if (isCounted && durationMinutes >= 15) {
         const starsEarned = Math.floor(durationMinutes / 10);
-        
-        // Fetch current profile to calculate streak
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('total_stars, current_streak, last_study_date')
-          .eq('id', user.id)
-          .single();
 
         if (profile) {
           const today = new Date().toISOString().split('T')[0];
@@ -563,7 +568,7 @@ export default function Dashboard() {
       // Fetch Recent Exams for dedicated section
       setLoadingExams(true);
       try {
-        const { data: examsData } = await supabase
+        const { data: examsData, error: examsError } = await supabase
           .from('exam_submissions')
           .select(`
             id,
@@ -578,9 +583,46 @@ export default function Dashboard() {
           .eq('status', 'completed')
           .order('created_at', { ascending: false })
           .limit(3);
-        setRecentExams(examsData || []);
+
+        if (!examsError && examsData) {
+          const formatted = examsData.map(item => ({
+            ...item,
+            exams: Array.isArray(item.exams) ? item.exams[0] : item.exams
+          }));
+          setRecentExams(formatted);
+        } else {
+          // Fallback if relational select fails
+          const { data: rawSubs } = await supabase
+            .from('exam_submissions')
+            .select('id, exam_id, score, total_points, created_at, status')
+            .eq('user_id', user.id)
+            .eq('status', 'completed')
+            .order('created_at', { ascending: false })
+            .limit(3);
+
+          if (rawSubs && rawSubs.length > 0) {
+            const examIds = Array.from(new Set(rawSubs.map(s => s.exam_id).filter(Boolean)));
+            if (examIds.length > 0) {
+              const { data: titleData } = await supabase
+                .from('exams')
+                .select('id, title')
+                .in('id', examIds);
+              const eMap = new Map((titleData || []).map(e => [e.id, e]));
+              const mapped = rawSubs.map(s => ({
+                ...s,
+                exams: eMap.get(s.exam_id) || null
+              }));
+              setRecentExams(mapped);
+            } else {
+              setRecentExams(rawSubs);
+            }
+          } else {
+            setRecentExams([]);
+          }
+        }
       } catch (error) {
-        console.error('Error fetching recent exams:', error);
+        console.warn('Dashboard recent exams notice:', error);
+        setRecentExams([]);
       } finally {
         setLoadingExams(false);
       }
@@ -611,7 +653,8 @@ export default function Dashboard() {
           setUpcomingTasks(tasksData || []);
         }
       } catch (error) {
-        console.error('Error fetching tasks for dashboard:', error);
+        console.warn('Dashboard tasks notice:', error);
+        setUpcomingTasks([]);
       }
     };
 

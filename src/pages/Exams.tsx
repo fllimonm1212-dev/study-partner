@@ -26,7 +26,7 @@ export default function Exams() {
         .from('profiles')
         .select('role')
         .eq('id', user.id)
-        .single();
+        .maybeSingle();
       
       if (data?.role === 'admin') {
         setIsAdmin(true);
@@ -47,24 +47,31 @@ export default function Exams() {
           .select('*')
           .order('created_at', { ascending: false });
 
-        if (examsError && examsError.code !== '42P01') throw examsError;
+        if (examsError) {
+          console.warn("Exams table notice:", examsError);
+        }
 
         const { data: subsData, error: subsError } = await supabase
           .from('exam_submissions')
           .select('*')
           .eq('user_id', user.id);
 
-        if (subsError && subsError.code !== '42P01') throw subsError;
+        if (subsError) {
+          console.warn("Exam submissions table notice:", subsError);
+        }
 
-        setExams(examsData || []);
-        setSubmissions(subsData || []);
+        const validExams = examsData || [];
+        const validSubs = subsData || [];
+
+        setExams(validExams);
+        setSubmissions(validSubs);
         
-        const visibleExams = (examsData || []).filter(e => e.is_published !== false || (subsData || []).some(s => s.exam_id === e.id));
+        const visibleExams = validExams.filter(e => e.is_published !== false || validSubs.some(s => s.exam_id === e.id));
         if (visibleExams.length > 0) {
           setSelectedExamId(visibleExams[0].id);
         }
       } catch (error) {
-        console.error("Error fetching exams:", error);
+        console.warn("Exams fetch notice:", error);
       } finally {
         setLoading(false);
       }
@@ -80,8 +87,10 @@ export default function Exams() {
       if (!selectedExamId) return;
       setLoadingLeaderboard(true);
       setLeaderboardError(null);
-      console.log("Fetching leaderboard for exam:", selectedExamId);
       try {
+        let leaderboardList: any[] = [];
+        const getProfile = (val: any) => (Array.isArray(val) ? val[0] : val);
+
         const { data, error } = await supabase
           .from('exam_submissions')
           .select(`
@@ -106,19 +115,42 @@ export default function Exams() {
           .order('score', { ascending: false })
           .order('completed_at', { ascending: true });
 
-        if (error) {
-          console.error("Supabase error fetching leaderboard:", error);
-          if (error.code === '42P01') {
-            console.warn("Table 'exam_submissions' does not exist yet.");
+        if (!error && data) {
+          leaderboardList = data.map(item => ({
+            ...item,
+            profiles: getProfile(item.profiles)
+          }));
+        } else {
+          // Fallback: 2-step query if relational join fails
+          const { data: fallbackSubs, error: subsErr } = await supabase
+            .from('exam_submissions')
+            .select('id, score, total_points, status, completed_at, created_at, user_id')
+            .eq('exam_id', selectedExamId)
+            .eq('status', 'completed')
+            .order('score', { ascending: false })
+            .order('completed_at', { ascending: true });
+
+          if (!subsErr && fallbackSubs && fallbackSubs.length > 0) {
+            const userIds = Array.from(new Set(fallbackSubs.map(s => s.user_id).filter(Boolean)));
+            if (userIds.length > 0) {
+              const { data: profs } = await supabase
+                .from('profiles')
+                .select('id, full_name, email, avatar_url, class_id, section')
+                .in('id', userIds);
+
+              const pMap = new Map((profs || []).map(p => [p.id, p]));
+              leaderboardList = fallbackSubs.map(s => ({
+                ...s,
+                profiles: pMap.get(s.user_id) || null
+              }));
+            }
           }
-          throw error;
         }
         
-        console.log("Leaderboard data received:", data?.length || 0, "rows");
-        setLeaderboardData(data || []);
+        setLeaderboardData(leaderboardList);
       } catch (error: any) {
-        console.error("Error fetching leaderboard:", error);
-        setLeaderboardError(error.message || "Failed to load leaderboard data.");
+        console.warn("Leaderboard fetch notice:", error);
+        setLeaderboardError(error?.message || "Failed to load leaderboard data.");
       } finally {
         setLoadingLeaderboard(false);
       }

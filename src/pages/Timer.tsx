@@ -237,10 +237,22 @@ export default function Timer() {
     const isCounted = type !== 'break';
 
     try {
+      // Ensure profile exists for FK requirement on study_sessions
+      const defaultName = user.user_metadata?.full_name || user.email?.split('@')[0] || 'User';
+      const { data: profile } = await supabase
+        .from('profiles')
+        .upsert({
+          id: user.id,
+          full_name: defaultName,
+          avatar_url: user.user_metadata?.avatar_url || ''
+        }, { onConflict: 'id' })
+        .select('total_stars, current_streak, last_study_date')
+        .maybeSingle();
+
       const { error } = await supabase.from('study_sessions').insert({
         user_id: user.id,
-        subject_id: sub,
-        activity_type: type,
+        subject_id: sub || 'General',
+        activity_type: type || 'Study',
         duration_minutes: durationMinutes,
         start_time: startTime?.toISOString() || new Date(Date.now() - finalElapsed * 1000).toISOString(),
         end_time: new Date().toISOString(),
@@ -254,13 +266,6 @@ export default function Timer() {
       // Update streak and stars (1 star per 10 minutes of study, at least 15 mins for streak)
       if (isCounted && durationMinutes >= 15) {
         const starsEarned = Math.floor(durationMinutes / 10);
-        
-        // Fetch current profile to calculate streak
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('total_stars, current_streak, last_study_date')
-          .eq('id', user.id)
-          .single();
 
         if (profile) {
           const today = new Date().toISOString().split('T')[0];

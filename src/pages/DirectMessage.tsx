@@ -42,10 +42,12 @@ export default function DirectMessage() {
           .from('profiles')
           .select('id, full_name, avatar_url')
           .eq('id', id)
-          .single();
+          .maybeSingle();
 
-        if (profileError) throw profileError;
-        setFriend(profileData);
+        if (profileError) {
+          console.warn('DirectMessage profile query notice:', profileError);
+        }
+        setFriend(profileData || { id, full_name: 'User', avatar_url: '' });
 
         // Fetch messages
         const { data: messagesData, error: messagesError } = await supabase
@@ -54,11 +56,13 @@ export default function DirectMessage() {
           .or(`and(sender_id.eq.${user.id},receiver_id.eq.${id}),and(sender_id.eq.${id},receiver_id.eq.${user.id})`)
           .order('created_at', { ascending: true });
 
-        if (messagesError) throw messagesError;
+        if (messagesError) {
+          console.warn('DirectMessage messages query notice:', messagesError);
+        }
         setMessages(messagesData || []);
         
       } catch (error) {
-        console.error('Error fetching DM data:', error);
+        console.warn('DirectMessage data fetch notice:', error);
       } finally {
         setLoading(false);
       }

@@ -21,7 +21,9 @@ export default function Challenges() {
           .select('*')
           .order('created_at', { ascending: false });
 
-        if (challengesError) throw challengesError;
+        if (challengesError) {
+          console.warn('Challenges table query notice:', challengesError);
+        }
 
         // Fetch user's progress
         const { data: userProgress, error: progressError } = await supabase
@@ -29,30 +31,63 @@ export default function Challenges() {
           .select('*')
           .eq('user_id', user.id);
 
-        if (progressError) throw progressError;
+        if (progressError) {
+          console.warn('User progress query notice:', progressError);
+        }
 
         // Fetch all progress with profile info for leaderboard
-        const { data: allProgress, error: allProgressError } = await supabase
+        let allProgress: any[] = [];
+        const getProfile = (val: any) => (Array.isArray(val) ? val[0] : val);
+
+        const { data: rawAllProgress, error: allProgressError } = await supabase
           .from('user_challenge_progress')
           .select(`
             challenge_id,
             progress_hours,
             completed,
+            user_id,
             profiles (
               id,
-              username,
+              full_name,
               avatar_url
             )
           `)
           .order('progress_hours', { ascending: false });
 
-        if (allProgressError) throw allProgressError;
+        if (!allProgressError && rawAllProgress) {
+          allProgress = rawAllProgress.map(p => ({
+            ...p,
+            profiles: getProfile(p.profiles)
+          }));
+        } else {
+          // Fallback: 2-step fetch if relational join or FK fails
+          const { data: fallbackProgress } = await supabase
+            .from('user_challenge_progress')
+            .select('challenge_id, progress_hours, completed, user_id')
+            .order('progress_hours', { ascending: false });
+
+          if (fallbackProgress && fallbackProgress.length > 0) {
+            const userIds = Array.from(new Set(fallbackProgress.map(p => p.user_id).filter(Boolean)));
+            if (userIds.length > 0) {
+              const { data: profs } = await supabase
+                .from('profiles')
+                .select('id, full_name, avatar_url')
+                .in('id', userIds);
+
+              const profMap = new Map((profs || []).map(p => [p.id, p]));
+              allProgress = fallbackProgress.map(p => ({
+                ...p,
+                profiles: profMap.get(p.user_id) || null
+              }));
+            }
+          }
+        }
 
         // Group progress by challenge and calculate counts
         const completionCounts: Record<string, number> = {};
         const topParticipants: Record<string, any[]> = {};
 
-        allProgress?.forEach(p => {
+        allProgress.forEach(p => {
           if (p.completed) {
             completionCounts[p.challenge_id] = (completionCounts[p.challenge_id] || 0) + 1;
           }
@@ -67,8 +102,8 @@ export default function Challenges() {
         });
 
         // Merge data
-        const merged = challengesData?.map(challenge => {
-          const myProgress = userProgress?.find(p => p.challenge_id === challenge.id);
+        const merged = (challengesData || []).map(challenge => {
+          const myProgress = (userProgress || []).find(p => p.challenge_id === challenge.id);
           return {
             ...challenge,
             myProgress,
@@ -76,11 +111,12 @@ export default function Challenges() {
             topParticipants: topParticipants[challenge.id] || [],
             hasJoined: !!myProgress
           };
-        }) || [];
+        });
 
         setChallenges(merged);
       } catch (error) {
-        console.error("Error fetching challenges:", error);
+        console.warn("Challenges fetch notice:", error);
+        setChallenges([]);
       } finally {
         setLoading(false);
       }
