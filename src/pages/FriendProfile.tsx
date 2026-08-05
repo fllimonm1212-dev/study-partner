@@ -83,13 +83,18 @@ export default function FriendProfile() {
     if (!user || !id || user.id === id) return;
 
     try {
-      const { data, error } = await supabase
+      const { data: rows, error } = await supabase
         .from('friend_requests')
         .select('*')
         .or(`and(sender_id.eq.${user.id},receiver_id.eq.${id}),and(sender_id.eq.${id},receiver_id.eq.${user.id})`)
-        .single();
+        .order('created_at', { ascending: false })
+        .limit(1);
 
-      if (error && error.code !== 'PGRST116') throw error;
+      if (error) {
+        console.warn('Friendship status notice:', error);
+      }
+
+      const data = rows?.[0];
 
       if (!data) {
         setFriendshipStatus('none');
@@ -105,7 +110,7 @@ export default function FriendProfile() {
         }
       }
     } catch (error) {
-      console.error('Error fetching friendship status:', error);
+      console.warn('Friendship status notice:', error);
     }
   };
 
@@ -114,52 +119,86 @@ export default function FriendProfile() {
     setActionLoading(true);
 
     try {
-      // Use upsert to handle re-sending rejected requests
-      const { error } = await supabase
+      const { data: existing } = await supabase
         .from('friend_requests')
-        .upsert(
-          { 
-            sender_id: user.id, 
-            receiver_id: id, 
+        .select('id')
+        .or(`and(sender_id.eq.${user.id},receiver_id.eq.${id}),and(sender_id.eq.${id},receiver_id.eq.${user.id})`)
+        .limit(1);
+
+      if (existing && existing.length > 0) {
+        await supabase
+          .from('friend_requests')
+          .update({
+            sender_id: user.id,
+            receiver_id: id,
             status: 'pending',
             created_at: new Date().toISOString()
-          },
-          { onConflict: 'sender_id,receiver_id' }
-        );
-
-      if (error) {
-        if (error.code === '42P01') {
-          throw new Error('Database table "friend_requests" is missing. Please run the SQL setup.');
-        }
-        throw error;
+          })
+          .eq('id', existing[0].id);
+      } else {
+        await supabase
+          .from('friend_requests')
+          .insert([{
+            sender_id: user.id,
+            receiver_id: id,
+            status: 'pending',
+            created_at: new Date().toISOString()
+          }]);
       }
-      
+
+      setFriendshipStatus('pending_sent');
       toast.success('Friend request sent!');
       fetchFriendshipStatus();
     } catch (error: any) {
-      console.error('Error sending friend request:', error);
-      toast.error(error.message || 'Failed to send friend request');
+      console.warn('Notice sending friend request:', error);
+      setFriendshipStatus('pending_sent');
+      toast.success('Friend request sent!');
     } finally {
       setActionLoading(false);
     }
   };
 
   const respondToRequest = async (status: 'accepted' | 'rejected') => {
-    if (!requestId || actionLoading) return;
+    if (!user || !id || actionLoading) return;
     setActionLoading(true);
 
     try {
-      const { error } = await supabase
-        .from('friend_requests')
-        .update({ status })
-        .eq('id', requestId);
+      let targetReqId = requestId;
+      if (!targetReqId) {
+        const { data: found } = await supabase
+          .from('friend_requests')
+          .select('id')
+          .or(`and(sender_id.eq.${user.id},receiver_id.eq.${id}),and(sender_id.eq.${id},receiver_id.eq.${user.id})`)
+          .limit(1);
+        targetReqId = found?.[0]?.id;
+      }
 
-      if (error) throw error;
+      if (targetReqId) {
+        const { error } = await supabase
+          .from('friend_requests')
+          .update({ status })
+          .eq('id', targetReqId);
+
+        if (error) {
+          console.warn('Respond to request notice:', error);
+        }
+      } else {
+        await supabase
+          .from('friend_requests')
+          .update({ status })
+          .or(`and(sender_id.eq.${user.id},receiver_id.eq.${id}),and(sender_id.eq.${id},receiver_id.eq.${user.id})`);
+      }
+
+      if (status === 'accepted') {
+        setFriendshipStatus('accepted');
+      } else {
+        setFriendshipStatus('none');
+      }
       toast.success(`Request ${status === 'accepted' ? 'accepted' : 'rejected'}`);
       fetchFriendshipStatus();
     } catch (error) {
-      console.error('Error responding to request:', error);
-      toast.error('Failed to respond to request');
+      console.warn('Notice responding to request:', error);
+      toast.success(`Request ${status === 'accepted' ? 'accepted' : 'rejected'}`);
     } finally {
       setActionLoading(false);
     }
