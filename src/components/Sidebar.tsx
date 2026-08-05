@@ -17,7 +17,6 @@ import {
   CheckCircle2,
   MessageSquare,
   FileText,
-  Facebook,
   Linkedin,
   HelpCircle,
   StickyNote
@@ -179,26 +178,6 @@ export default function Sidebar({ isOpen, onClose }: { isOpen?: boolean; onClose
             <p className="px-3 mb-3 text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
               {t('Contact Us')}
             </p>
-            <a
-              href="https://web.facebook.com/fl.limon/about/?fb_profile_edit_entry_point=%7B%22click_point%22%3A%22edit_profile_button%22%2C%22feature%22%3A%22profile_header%22%7D&id=100068135405280&sk=about"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="group relative flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-300 text-[14px] font-medium text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 overflow-hidden"
-            >
-              <div className="absolute inset-0 bg-blue-50/80 dark:bg-blue-500/10 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-              <Facebook size={18} className="relative z-10 transition-transform duration-300 group-hover:scale-110" />
-              <span className="relative z-10 transition-transform duration-300 group-hover:translate-x-1">{t('Facebook Profile')}</span>
-            </a>
-            <a
-              href="https://web.facebook.com/?_rdc=10&_rdr#"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="group relative flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-300 text-[14px] font-medium text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 overflow-hidden"
-            >
-              <div className="absolute inset-0 bg-blue-50/80 dark:bg-blue-500/10 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-              <Facebook size={18} className="relative z-10 transition-transform duration-300 group-hover:scale-110" />
-              <span className="relative z-10 transition-transform duration-300 group-hover:translate-x-1">{t('Facebook Home')}</span>
-            </a>
             <a
               href="https://www.linkedin.com/in/f-limon-a83436392"
               target="_blank"
