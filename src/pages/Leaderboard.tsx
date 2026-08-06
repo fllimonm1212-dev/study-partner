@@ -5,6 +5,7 @@ import { motion } from 'motion/react';
 import { cn } from '../components/Sidebar';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
+import { isDemoModeEnabled, getDemoAccounts, DEMO_MODE_EVENT } from '../lib/demoAccounts';
 
 interface LeaderboardUser {
   id: string;
@@ -63,7 +64,7 @@ export default function Leaderboard() {
                           sortBy === 'streak' ? 'current_streak' : 'total_stars';
 
         // Fetch top 1000 profiles ordered by selected metric
-        const { data: profiles, error } = await supabase
+        const { data: profilesData, error } = await supabase
           .from('profiles')
           .select('id, full_name, email, class_id, section, total_stars, current_streak, avatar_url')
           .order(sortColumn, { ascending: false })
@@ -71,8 +72,34 @@ export default function Leaderboard() {
 
         if (error) throw error;
 
-        if (profiles) {
-          const formattedData = profiles.map((p, index) => {
+        let combinedProfiles = [...(profilesData || [])];
+
+        // Merge demo accounts if demo mode is enabled by admin
+        if (isDemoModeEnabled()) {
+          const demoList = getDemoAccounts();
+          demoList.forEach(demo => {
+            combinedProfiles.push({
+              id: demo.id,
+              full_name: demo.full_name,
+              email: demo.email,
+              class_id: demo.class_id,
+              section: demo.section,
+              total_stars: demo.total_stars,
+              current_streak: demo.current_streak,
+              avatar_url: demo.avatar_url
+            });
+          });
+
+          // Sort combined list by active metric
+          combinedProfiles.sort((a, b) => {
+            const valA = sortBy === 'streak' ? (a.current_streak || 0) : (a.total_stars || 0);
+            const valB = sortBy === 'streak' ? (b.current_streak || 0) : (b.total_stars || 0);
+            return valB - valA;
+          });
+        }
+
+        if (combinedProfiles) {
+          const formattedData = combinedProfiles.map((p, index) => {
             const name = p.full_name || p.email?.split('@')[0] || 'Unknown Student';
             const classLabel = p.class_id ? `${p.class_id}-${p.section || 'A'}` : 'N/A';
             const stars = p.total_stars || 0;
@@ -81,7 +108,7 @@ export default function Leaderboard() {
               rank: index + 1,
               name: name,
               class: classLabel,
-              hours: Math.floor(stars / 6),
+              hours: Math.round((stars / 6) * 10) / 10,
               stars: stars,
               streak: p.current_streak || 0,
               isMe: user?.id === p.id,
@@ -154,6 +181,9 @@ export default function Leaderboard() {
     fetchFriends();
     fetchLeaderboard();
 
+    const handleDemoChange = () => fetchLeaderboard();
+    window.addEventListener(DEMO_MODE_EVENT, handleDemoChange);
+
     // Set up real-time subscription for live updates
     const channel = supabase
       .channel('public:profiles')
@@ -164,6 +194,7 @@ export default function Leaderboard() {
       .subscribe();
 
     return () => {
+      window.removeEventListener(DEMO_MODE_EVENT, handleDemoChange);
       supabase.removeChannel(channel);
     };
   }, [user, timeframe, sortBy]);

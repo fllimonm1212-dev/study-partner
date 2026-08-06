@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Database, FolderTree, Server, ShieldCheck, AlertTriangle, Users, Target, Activity, Plus, Trash2, FileText, Upload, Loader2, MessageSquareWarning, CheckCircle2, Link } from 'lucide-react';
+import { Database, FolderTree, Server, ShieldCheck, AlertTriangle, Users, Target, Activity, Plus, Trash2, FileText, Upload, Loader2, MessageSquareWarning, CheckCircle2, Link, ToggleLeft, ToggleRight, Sparkles, UserCheck } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 import { Navigate, useNavigate } from 'react-router-dom';
@@ -8,6 +8,7 @@ import { cn } from '../components/Sidebar';
 import { GoogleGenAI, Type } from '@google/genai';
 import mammoth from 'mammoth';
 import { toast } from 'sonner';
+import { isDemoModeEnabled, setDemoModeEnabled, getDemoAccounts, DEMO_MODE_EVENT } from '../lib/demoAccounts';
 
 export default function AdminPanel() {
   const { user } = useAuth();
@@ -21,7 +22,25 @@ export default function AdminPanel() {
   const [submissionsList, setSubmissionsList] = useState<any[]>([]);
   const [feedbackFilter, setFeedbackFilter] = useState<'all' | 'complain' | 'feature_request'>('all');
   const [stats, setStats] = useState({ totalUsers: 0, totalHours: 0, totalSessions: 0 });
+  const [demoAccountsActive, setDemoAccountsActive] = useState(isDemoModeEnabled());
   const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    const handleDemoChange = () => setDemoAccountsActive(isDemoModeEnabled());
+    window.addEventListener(DEMO_MODE_EVENT, handleDemoChange);
+    return () => window.removeEventListener(DEMO_MODE_EVENT, handleDemoChange);
+  }, []);
+
+  const handleToggleDemoAccounts = () => {
+    const nextState = !demoAccountsActive;
+    setDemoAccountsActive(nextState);
+    setDemoModeEnabled(nextState);
+    if (nextState) {
+      toast.success('ডেমো অ্যাকাউন্ট চালু করা হয়েছে! ১০টি ডেমো অ্যাকাউন্ট সক্রিয়।');
+    } else {
+      toast.info('ডেমো অ্যাকাউন্ট বন্ধ করা হয়েছে।');
+    }
+  };
   const [isSettingUpDB, setIsSettingUpDB] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -803,6 +822,73 @@ export default function AdminPanel() {
                       )}
                     </button>
                   </div>
+                </motion.div>
+
+                {/* DEMO ACCOUNTS CONTROL CARD */}
+                <motion.div 
+                  initial={{ opacity: 0, y: 20 }} 
+                  animate={{ opacity: 1, y: 0 }} 
+                  transition={{ delay: 0.4 }}
+                  className="glass-panel p-6 rounded-2xl border border-indigo-500/20 mt-6"
+                >
+                  <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <Users size={20} className="text-amber-400" />
+                        <h3 className="text-lg font-bold text-white">Show Demo Accounts (১০টি ডেমো অ্যাকাউন্ট)</h3>
+                        <span className={cn(
+                          "px-2.5 py-0.5 rounded-full text-xs font-semibold",
+                          demoAccountsActive ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-slate-800 text-slate-400 border border-slate-700"
+                        )}>
+                          {demoAccountsActive ? 'Active (চালু)' : 'Disabled (বন্ধ)'}
+                        </span>
+                      </div>
+                      <p className="text-slate-400 text-sm mt-1 max-w-2xl">
+                        চালু থাকলে ১০টি সচল ডেমো অ্যাকাউন্ট সবার ফ্রেন্ড সাজেশনস ও লিডারবোর্ডে দেখতে পাবে। কেউ ফ্রেন্ড রিকোয়েস্ট পাঠালে অটোমেটিক অ্যাকসেপ্ট হবে এবং তাদের স্টাডি টাইম স্বাভাবিকভাবে বাড়তে থাকবে। অ্যাডমিন বন্ধ করে দিলে এগুলো সাথে সাথে হাইড হয়ে যাবে।
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={handleToggleDemoAccounts}
+                      className={cn(
+                        "flex items-center gap-3 px-6 py-3 rounded-xl font-semibold transition-all shadow-lg whitespace-nowrap",
+                        demoAccountsActive 
+                          ? "bg-emerald-500 hover:bg-emerald-600 text-white shadow-emerald-500/20" 
+                          : "bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700"
+                      )}
+                    >
+                      {demoAccountsActive ? (
+                        <>
+                          <ToggleRight size={22} className="text-white" />
+                          <span>Demo Mode: ON</span>
+                        </>
+                      ) : (
+                        <>
+                          <ToggleLeft size={22} className="text-slate-400" />
+                          <span>Demo Mode: OFF</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {demoAccountsActive && (
+                    <div className="mt-6 pt-6 border-t border-slate-800/80 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                      {getDemoAccounts().map((demo, idx) => (
+                        <div key={demo.id} className="p-3 rounded-xl bg-slate-900/60 border border-slate-800/80 flex items-center gap-3">
+                          <img 
+                            src={demo.avatar_url} 
+                            alt={demo.full_name} 
+                            className="w-10 h-10 rounded-full object-cover border border-amber-500/30"
+                          />
+                          <div className="overflow-hidden">
+                            <p className="text-xs font-semibold text-white truncate">{demo.full_name}</p>
+                            <p className="text-[11px] text-slate-400 truncate">{demo.class_id} • {demo.total_stars} ⭐</p>
+                            <p className="text-[10px] text-amber-400 font-medium">{demo.study_hours} hrs studied</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </motion.div>
               </div>
               </>

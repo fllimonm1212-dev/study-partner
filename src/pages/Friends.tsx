@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Users, UserPlus, Search, Check, X, MessageSquare, Clock, Star } from 'lucide-react';
+import { Users, UserPlus, Search, Check, X, MessageSquare, Clock, Star, Sparkles } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { cn } from '../components/Sidebar';
 import { toast } from 'sonner';
+import { isDemoModeEnabled, getDemoAccounts, getDemoAcceptedFriends, addDemoFriend, isDemoFriend, DEMO_MODE_EVENT } from '../lib/demoAccounts';
 
 export default function Friends() {
   const { user } = useAuth();
@@ -23,11 +24,15 @@ export default function Friends() {
     if (!user) return;
     fetchFriendsData();
 
+    const handleDemoChange = () => fetchFriendsData();
+    window.addEventListener(DEMO_MODE_EVENT, handleDemoChange);
+
     const requestsSub = supabase.channel('public:friend_requests')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'friend_requests' }, fetchFriendsData)
       .subscribe();
 
     return () => {
+      window.removeEventListener(DEMO_MODE_EVENT, handleDemoChange);
       supabase.removeChannel(requestsSub);
     };
   }, [user]);
@@ -103,6 +108,25 @@ export default function Friends() {
         })
         .filter(Boolean);
 
+      // Append demo friends if demo mode is enabled
+      if (isDemoModeEnabled()) {
+        const demoAcceptedIds = getDemoAcceptedFriends();
+        const demoAccounts = getDemoAccounts();
+        const demoFriends = demoAccounts
+          .filter(d => demoAcceptedIds.includes(d.id))
+          .map(d => ({
+            id: d.id,
+            full_name: d.full_name,
+            avatar_url: d.avatar_url,
+            total_stars: d.total_stars,
+            class_id: d.class_id,
+            is_demo: true,
+            friendship_id: `demo-friendship-${d.id}`
+          }));
+
+        friendsList = [...friendsList, ...demoFriends];
+      }
+
       setFriends(friendsList);
       setIncomingRequests(incoming);
       setOutgoingRequests(outgoing);
@@ -147,6 +171,18 @@ export default function Friends() {
 
   const sendRequest = async (receiverId: string) => {
     if (!user) return;
+
+    // Handle demo account instant auto-accept
+    if (receiverId.startsWith('demo-user-')) {
+      const demoAccounts = getDemoAccounts();
+      const targetDemo = demoAccounts.find(d => d.id === receiverId);
+      addDemoFriend(receiverId);
+      toast.success(`${targetDemo?.full_name || 'Demo user'} accepted your friend request! 🎉`);
+      setSearchResults(prev => prev.filter(p => p.id !== receiverId));
+      fetchFriendsData();
+      return;
+    }
+
     try {
       const { data: existing } = await supabase
         .from('friend_requests')
@@ -177,11 +213,10 @@ export default function Friends() {
 
       toast.success('Friend request sent!');
       setSearchResults(prev => prev.filter(p => p.id !== receiverId));
-      fetchFriendsData(); // Refresh to update state
+      fetchFriendsData();
     } catch (error: any) {
-      console.warn('Notice sending request:', error);
+      console.warn('Send request notice:', error);
       toast.success('Friend request sent!');
-      setSearchResults(prev => prev.filter(p => p.id !== receiverId));
     }
   };
 
@@ -443,45 +478,99 @@ export default function Friends() {
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search users by name..."
+                  placeholder="Search students or demo accounts by name..."
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-12 pr-4 py-3 text-white focus:outline-none focus:border-indigo-500 transition-colors"
                 />
                 <button type="submit" className="hidden">Search</button>
               </form>
 
-              {searchResults.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {searchResults.map(result => (
-                    <div key={result.id} className="glass-panel p-4 rounded-xl flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        {result.avatar_url ? (
-                          <img src={result.avatar_url} alt="" className="w-12 h-12 rounded-full object-cover border border-slate-700" />
-                        ) : (
-                          <div className="w-12 h-12 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold text-lg">
-                            {(result.full_name || 'U').substring(0, 2).toUpperCase()}
-                          </div>
-                        )}
-                        <div>
-                          <h3 
-                            className="font-medium text-white hover:text-indigo-400 cursor-pointer transition-colors"
-                            onClick={() => navigate(`/friends/${result.id}/profile`)}
-                          >
-                            {result.full_name}
-                          </h3>
-                          <p className="text-sm text-amber-400">{result.total_stars || 0} ⭐</p>
-                        </div>
-                      </div>
-                      <button 
-                        onClick={() => sendRequest(result.id)}
-                        className="p-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg transition-colors"
-                        title="Send Request"
-                      >
-                        <UserPlus size={18} />
-                      </button>
+              {/* DEMO SUGGESTIONS SECTION */}
+              {isDemoModeEnabled() && (() => {
+                const acceptedDemoIds = getDemoAcceptedFriends();
+                const allDemoAccounts = getDemoAccounts();
+                const availableDemos = allDemoAccounts.filter(d => 
+                  !acceptedDemoIds.includes(d.id) &&
+                  (!searchQuery.trim() || d.full_name.toLowerCase().includes(searchQuery.toLowerCase()) || d.class_id.toLowerCase().includes(searchQuery.toLowerCase()))
+                );
+
+                if (availableDemos.length === 0) return null;
+
+                return (
+                  <div className="space-y-3 pt-2">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-semibold text-slate-300 flex items-center gap-2">
+                        <Sparkles size={16} className="text-amber-400" />
+                        Friend Suggestions (প্রস্তাবিত বন্ধু - রিকোয়েস্ট দিলে অটো অ্যাকসেপ্ট হবে)
+                      </h3>
+                      <span className="text-xs text-indigo-400 font-medium">Demo Mode Active</span>
                     </div>
-                  ))}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {availableDemos.map(demo => (
+                        <div key={demo.id} className="glass-panel p-4 rounded-xl flex items-center justify-between border border-indigo-500/20 hover:border-indigo-500/40 transition-all">
+                          <div className="flex items-center gap-3">
+                            <img src={demo.avatar_url} alt={demo.full_name} className="w-12 h-12 rounded-full object-cover border border-amber-500/30" />
+                            <div>
+                              <h3 
+                                className="font-semibold text-white hover:text-indigo-400 cursor-pointer transition-colors flex items-center gap-2"
+                                onClick={() => navigate(`/friends/${demo.id}/profile`)}
+                              >
+                                {demo.full_name}
+                              </h3>
+                              <p className="text-xs text-slate-400 mt-0.5">
+                                {demo.class_id} • <span className="text-amber-400 font-medium">{demo.total_stars} ⭐</span> • <span className="text-indigo-300">{demo.study_hours} hrs</span>
+                              </p>
+                            </div>
+                          </div>
+                          <button 
+                            onClick={() => sendRequest(demo.id)}
+                            className="px-3 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl transition-all font-medium text-xs flex items-center gap-1.5 shadow-lg shadow-indigo-500/20"
+                            title="Add Friend (Auto Accepts)"
+                          >
+                            <UserPlus size={15} /> Add Friend
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {searchResults.length > 0 ? (
+                <div className="space-y-3 pt-4">
+                  <h3 className="text-sm font-semibold text-slate-400">Search Results</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {searchResults.map(result => (
+                      <div key={result.id} className="glass-panel p-4 rounded-xl flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          {result.avatar_url ? (
+                            <img src={result.avatar_url} alt="" className="w-12 h-12 rounded-full object-cover border border-slate-700" />
+                          ) : (
+                            <div className="w-12 h-12 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold text-lg">
+                              {(result.full_name || 'U').substring(0, 2).toUpperCase()}
+                            </div>
+                          )}
+                          <div>
+                            <h3 
+                              className="font-medium text-white hover:text-indigo-400 cursor-pointer transition-colors"
+                              onClick={() => navigate(`/friends/${result.id}/profile`)}
+                            >
+                              {result.full_name}
+                            </h3>
+                            <p className="text-sm text-amber-400">{result.total_stars || 0} ⭐</p>
+                          </div>
+                        </div>
+                        <button 
+                          onClick={() => sendRequest(result.id)}
+                          className="p-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg transition-colors"
+                          title="Send Request"
+                        >
+                          <UserPlus size={18} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              ) : searchQuery && (
+              ) : searchQuery && !isDemoModeEnabled() && (
                 <div className="text-center py-12 text-slate-400">
                   No users found matching "{searchQuery}" or they are already your friends.
                 </div>

@@ -6,6 +6,7 @@ import { motion } from 'motion/react';
 import { cn } from '../components/Sidebar';
 import { useAuth } from '../contexts/AuthContext';
 import { toast } from 'sonner';
+import { isDemoModeEnabled, getDemoAccounts, isDemoFriend, addDemoFriend } from '../lib/demoAccounts';
 
 interface ProfileData {
   id: string;
@@ -82,6 +83,15 @@ export default function FriendProfile() {
   const fetchFriendshipStatus = async () => {
     if (!user || !id || user.id === id) return;
 
+    if (id.startsWith('demo-user-')) {
+      if (isDemoFriend(id)) {
+        setFriendshipStatus('accepted');
+      } else {
+        setFriendshipStatus('none');
+      }
+      return;
+    }
+
     try {
       const { data: rows, error } = await supabase
         .from('friend_requests')
@@ -117,6 +127,14 @@ export default function FriendProfile() {
   const sendFriendRequest = async () => {
     if (!user || !id || actionLoading) return;
     setActionLoading(true);
+
+    if (id.startsWith('demo-user-')) {
+      addDemoFriend(id);
+      setFriendshipStatus('accepted');
+      toast.success('Friend request accepted! 🎉');
+      setActionLoading(false);
+      return;
+    }
 
     try {
       const { data: existing } = await supabase
@@ -206,6 +224,27 @@ export default function FriendProfile() {
 
   const fetchProfile = async () => {
     try {
+      if (id?.startsWith('demo-user-')) {
+        const demoAccounts = getDemoAccounts();
+        const found = demoAccounts.find(d => d.id === id);
+        if (found) {
+          setProfile({
+            id: found.id,
+            full_name: found.full_name,
+            email: found.email,
+            avatar_url: found.avatar_url,
+            bio: found.bio,
+            class_id: found.class_id,
+            section: found.section,
+            total_stars: found.total_stars,
+            current_streak: found.current_streak,
+            created_at: new Date(Date.now() - 30 * 86400000).toISOString(),
+            interests: found.interests
+          });
+        }
+        return;
+      }
+
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
