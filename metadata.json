@@ -1,5 +1,6 @@
 {
-  "name": "study partner",
-  "description": "",
-  "requestFramePermissions": []
+  "name": "StudyPartner BD",
+  "description": "Comprehensive HSC and Admission Study Companion with AI Formula & Short Note Extractor, Model Tests, Study Tracker, and Peer Groups.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

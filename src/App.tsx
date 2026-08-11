@@ -28,6 +28,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import ResetPassword from './pages/ResetPassword';
 import Manual from './pages/Manual';
+import AiFormulaNotes from './pages/AiFormulaNotes';
 import { Toaster } from 'sonner';
 
 import Presentation from './pages/Presentation';
@@ -64,6 +65,7 @@ export default function App() {
                   <Route path="notes" element={<Notes />} />
                   <Route path="calculator" element={<Calculator />} />
                   <Route path="analytics" element={<Analytics />} />
+                  <Route path="ai-formula-notes" element={<AiFormulaNotes />} />
                   <Route path="manual" element={<Manual />} />
                   <Route path="profile" element={<Profile />} />
                   <Route path="feedback" element={<Feedback />} />
