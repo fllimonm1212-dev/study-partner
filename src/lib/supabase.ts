@@ -9,7 +9,30 @@ const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabaseUrl = (typeof envUrl === 'string' && envUrl.trim().length > 0) ? envUrl.trim() : defaultUrl;
 const supabaseAnonKey = (typeof envKey === 'string' && envKey.trim().length > 0) ? envKey.trim() : defaultKey;
 
+const safeFetch: typeof fetch = async (input, init) => {
+  try {
+    return await fetch(input, init);
+  } catch (error: any) {
+    console.warn('Network request notice (handled gracefully):', error?.message || error);
+    return new Response(
+      JSON.stringify({
+        code: 'NETWORK_ERROR',
+        message: error?.message || 'Failed to fetch',
+        details: 'Network connection or server temporarily unavailable'
+      }),
+      {
+        status: 503,
+        statusText: 'Service Unavailable',
+        headers: { 'Content-Type': 'application/json' }
+      }
+    );
+  }
+};
+
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  global: {
+    fetch: safeFetch,
+  },
   auth: {
     persistSession: true,
     autoRefreshToken: true,

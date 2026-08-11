@@ -18,6 +18,7 @@ import {
   MessageSquare,
   FileText,
   Linkedin,
+  Presentation,
   HelpCircle,
   StickyNote,
   Calculator
@@ -47,6 +48,7 @@ const navItems = [
   { name: 'Calculator & Formulas', path: '/calculator', icon: Calculator },
   { name: 'Analytics', path: '/analytics', icon: BarChart3 },
   { name: 'Profile', path: '/profile', icon: User },
+  { name: 'Presentation (.pptx)', path: '/presentation', icon: Presentation },
   { name: 'Complain & Request for Feature', path: '/feedback', icon: HelpCircle },
   { name: 'Admin Panel', path: '/admin', icon: ShieldCheck },
 ];

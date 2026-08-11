@@ -29,6 +29,8 @@ import Register from './pages/Register';
 import ResetPassword from './pages/ResetPassword';
 import { Toaster } from 'sonner';
 
+import Presentation from './pages/Presentation';
+
 export default function App() {
   return (
     <ThemeProvider>
@@ -63,6 +65,7 @@ export default function App() {
                   <Route path="analytics" element={<Analytics />} />
                   <Route path="profile" element={<Profile />} />
                   <Route path="feedback" element={<Feedback />} />
+                  <Route path="presentation" element={<Presentation />} />
                   <Route path="admin" element={<AdminPanel />} />
                 </Route>
               </Route>
