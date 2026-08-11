@@ -24,11 +24,11 @@ app.get("/api/health", (_req, res) => {
 // AI Formula & Short Notes Extractor Endpoint
 app.post("/api/gemini/extract-formulas-notes", async (req, res) => {
   try {
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GOOGLE_AI_API_KEY || process.env.GOOGLE_AI_API_KEY;
     if (!apiKey) {
       return res.status(500).json({
         success: false,
-        error: "GEMINI_API_KEY পাওয়া যায়নি। Vercel Project Settings > Environment Variables-এ GEMINI_API_KEY যোগ করুন।"
+        error: "GEMINI_API_KEY পাওয়া যায়নি। Vercel Project Settings > Environment Variables-এ GEMINI_API_KEY অথবা VITE_GOOGLE_AI_API_KEY যোগ করুন।"
       });
     }
 
@@ -119,7 +119,7 @@ Instructions:
     contentsParts.push({ text: promptText });
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.6-flash",
+      model: "gemini-2.5-flash",
       contents: { parts: contentsParts },
       config: {
         responseMimeType: "application/json",
@@ -204,11 +204,11 @@ Instructions:
 // AI MCQ Question Generator Endpoint from PDF / Text
 app.post("/api/gemini/generate-questions-from-pdf", async (req, res) => {
   try {
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GOOGLE_AI_API_KEY || process.env.GOOGLE_AI_API_KEY;
     if (!apiKey) {
       return res.status(500).json({
         success: false,
-        error: "GEMINI_API_KEY পাওয়া যায়নি। Vercel Project Settings > Environment Variables-এ GEMINI_API_KEY যোগ করুন।"
+        error: "GEMINI_API_KEY পাওয়া যায়নি। Vercel Project Settings > Environment Variables-এ GEMINI_API_KEY অথবা VITE_GOOGLE_AI_API_KEY যোগ করুন।"
       });
     }
 
@@ -286,7 +286,7 @@ Instructions:
     contentsParts.push({ text: promptText });
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.6-flash",
+      model: "gemini-2.5-flash",
       contents: { parts: contentsParts },
       config: {
         responseMimeType: "application/json",
