@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase';
 import { Send, Image as ImageIcon, FileText, ArrowLeft, MessageSquare } from 'lucide-react';
 import { cn } from '../components/Sidebar';
 import { toast } from 'sonner';
+import { getDemoAccounts, isDemoFriend, isDemoModeEnabled } from '../lib/demoAccounts';
 
 export default function DirectMessage() {
   const { id } = useParams<{ id: string }>(); // friend's user ID
@@ -24,6 +25,44 @@ export default function DirectMessage() {
 
     const fetchFriendData = async () => {
       try {
+        if (id.startsWith('demo-user-')) {
+          const demoAccounts = getDemoAccounts();
+          const targetDemo = demoAccounts.find(d => d.id === id);
+          if (!targetDemo) {
+            navigate('/friends');
+            return;
+          }
+          setFriend({
+            id: targetDemo.id,
+            full_name: targetDemo.full_name,
+            avatar_url: targetDemo.avatar_url
+          });
+
+          // Load local demo messages
+          const cacheKey = `demo_chat_${user.id}_${id}`;
+          const localRaw = localStorage.getItem(cacheKey);
+          if (localRaw) {
+            try {
+              setMessages(JSON.parse(localRaw));
+            } catch {
+              setMessages([]);
+            }
+          } else {
+            const welcomeMsg = [{
+              id: 'demo-welcome-' + Date.now(),
+              sender_id: id,
+              receiver_id: user.id,
+              content: `Hey! Thanks for connecting with me on Study Partner. Let's study hard together! 🚀`,
+              type: 'text',
+              created_at: new Date().toISOString()
+            }];
+            setMessages(welcomeMsg);
+            localStorage.setItem(cacheKey, JSON.stringify(welcomeMsg));
+          }
+          setLoading(false);
+          return;
+        }
+
         // Verify friendship
         const { data: friendship, error: friendError } = await supabase
           .from('friend_requests')
@@ -69,6 +108,8 @@ export default function DirectMessage() {
     };
 
     fetchFriendData();
+
+    if (id.startsWith('demo-user-')) return;
 
     // Subscriptions
     const messagesSub = supabase.channel(`direct_messages:${user.id}:${id}`)
@@ -157,14 +198,49 @@ export default function DirectMessage() {
 
     // Optimistic update
     const tempMsg = {
-      id: 'temp-' + Date.now(),
+      id: 'msg-' + Date.now(),
       sender_id: user.id,
       receiver_id: id,
       content: msgContent,
       type: 'text',
       created_at: new Date().toISOString()
     };
-    setMessages(prev => [...prev, tempMsg]);
+
+    if (id.startsWith('demo-user-')) {
+      const cacheKey = `demo_chat_${user.id}_${id}`;
+      setMessages(prev => {
+        const updated = [...prev, tempMsg];
+        localStorage.setItem(cacheKey, JSON.stringify(updated));
+        return updated;
+      });
+
+      // Auto-reply after 1.2s from demo study partner
+      setTimeout(() => {
+        const replies = [
+          "Nice focus! Keep going! 💪",
+          "Thanks for the update! I'm currently solving practice problems. 📚",
+          "Awesome! Let's reach our daily study targets today! 🌟",
+          "You're doing great! Keep up the good work! 🎉"
+        ];
+        const randomReply = replies[Math.floor(Math.random() * replies.length)];
+        const replyMsg = {
+          id: 'demo-reply-' + Date.now(),
+          sender_id: id,
+          receiver_id: user.id,
+          content: randomReply,
+          type: 'text',
+          created_at: new Date().toISOString()
+        };
+
+        setMessages(prev => {
+          const updated = [...prev, replyMsg];
+          localStorage.setItem(cacheKey, JSON.stringify(updated));
+          return updated;
+        });
+      }, 1200);
+
+      return;
+    }
 
     try {
       const { data, error } = await supabase

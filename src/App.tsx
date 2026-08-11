@@ -19,6 +19,7 @@ import Challenges from './pages/Challenges';
 import Analytics from './pages/Analytics';
 import Tasks from './pages/Tasks';
 import Notes from './pages/Notes';
+import Calculator from './pages/Calculator';
 import AdminPanel from './pages/AdminPanel';
 import Feedback from './pages/Feedback';
 import Exams from './pages/Exams';
@@ -58,6 +59,7 @@ export default function App() {
                   <Route path="exams/:id" element={<TakeExam />} />
                   <Route path="tasks" element={<Tasks />} />
                   <Route path="notes" element={<Notes />} />
+                  <Route path="calculator" element={<Calculator />} />
                   <Route path="analytics" element={<Analytics />} />
                   <Route path="profile" element={<Profile />} />
                   <Route path="feedback" element={<Feedback />} />

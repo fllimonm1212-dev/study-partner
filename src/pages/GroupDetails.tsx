@@ -30,62 +30,107 @@ export default function GroupDetails() {
     const fetchGroupData = async () => {
       try {
         // Fetch group details
-        const { data: groupData, error: groupError } = await supabase
+        let groupData: any = null;
+        const { data: gData, error: groupError } = await supabase
           .from('groups')
           .select('*')
           .eq('id', id)
           .single();
-          
-        if (groupError) throw groupError;
-        setGroup(groupData);
 
-        // Fetch members with profiles
-        const { data: membersData, error: membersError } = await supabase
-          .from('group_members')
-          .select(`
-            role,
-            joined_at,
-            profiles (id, full_name, avatar_url, total_stars, current_streak)
-          `)
-          .eq('group_id', id);
-          
-        if (membersError) throw membersError;
-        
-        // Fetch study sessions for all members to calculate group hours
-        const memberIds = membersData.map(m => (m.profiles as any).id);
-        const { data: sessionsData, error: sessionsError } = await supabase
-          .from('study_sessions')
-          .select('user_id, duration_minutes, start_time')
-          .in('user_id', memberIds)
-          .eq('is_counted', true);
+        if (!groupError && gData) {
+          groupData = gData;
+        } else {
+          const { data: gList } = await supabase
+            .from('groups')
+            .select('*')
+            .eq('id', id);
+          groupData = gList?.[0];
+        }
 
-        if (sessionsError) throw sessionsError;
-
-        // Check if current user is a member, creator, or global admin
-        const isMember = membersData.some(m => m.profiles && (m.profiles as any).id === user.id);
-        const isCreator = groupData.created_by === user.id;
-        const isGlobalAdmin = user.email === 'fllimonm1212@gmail.com';
-        
-        if (!isMember && !isCreator && !isGlobalAdmin) {
-          toast.error('You do not have permission to access this group. It may be pending approval.');
+        if (!groupData) {
+          toast.error('Group not found');
           navigate('/groups');
           return;
         }
 
-        // Calculate hours for each member since they joined the group
-        const membersWithStats = membersData
-          .filter(m => m.profiles)
+        setGroup(groupData);
+
+        const getProfile = (val: any) => (Array.isArray(val) ? val[0] : val);
+
+        // Fetch members with profiles and user_id
+        const { data: membersData } = await supabase
+          .from('group_members')
+          .select(`
+            role,
+            joined_at,
+            user_id,
+            profiles (id, full_name, avatar_url, total_stars, current_streak)
+          `)
+          .eq('group_id', id);
+
+        const allMembers = membersData || [];
+        const isMember = allMembers.some(m => {
+          const profId = getProfile(m.profiles)?.id;
+          return m.user_id === user.id || profId === user.id;
+        });
+        const isCreator = groupData.created_by === user.id;
+        const isGlobalAdmin = Boolean(user.email && ['fllimonm1212@gmail.com', 'fllimonm@gmail.com'].includes(user.email));
+
+        // Auto-add user to group_members if missing so anyone can access groups
+        if (!isMember) {
+          const role = (isCreator || isGlobalAdmin) ? 'admin' : 'member';
+          await supabase.from('group_members').insert({
+            group_id: id,
+            user_id: user.id,
+            role
+          });
+          
+          // Save to localStorage for My Groups tracking
+          try {
+            const localJoined: string[] = JSON.parse(localStorage.getItem(`joined_groups_${user.id}`) || '[]');
+            if (id && !localJoined.includes(id)) {
+              localJoined.push(id);
+              localStorage.setItem(`joined_groups_${user.id}`, JSON.stringify(localJoined));
+            }
+          } catch (e) {}
+        }
+
+        // Fetch study sessions for members safely
+        const memberIds = Array.from(new Set([
+          ...allMembers.map(m => m.user_id || getProfile(m.profiles)?.id).filter(Boolean),
+          user.id
+        ]));
+
+        let sessionsData: any[] = [];
+        if (memberIds.length > 0) {
+          const { data: sData } = await supabase
+            .from('study_sessions')
+            .select('user_id, duration_minutes, start_time')
+            .in('user_id', memberIds)
+            .eq('is_counted', true);
+          if (sData) sessionsData = sData;
+        }
+
+        // Calculate hours for members
+        const membersWithStats = allMembers
           .map(m => {
-            const profile = m.profiles as any;
-            const groupSessions = sessionsData?.filter(s => 
+            const profile = getProfile(m.profiles) || {
+              id: m.user_id || user.id,
+              full_name: m.user_id === user.id ? (user.user_metadata?.full_name || 'You') : 'Group Member',
+              avatar_url: null,
+              total_stars: 0,
+              current_streak: 0
+            };
+            const groupSessions = sessionsData.filter(s => 
               s.user_id === profile.id && 
-              new Date(s.start_time) >= new Date(m.joined_at)
-            ) || [];
+              (!m.joined_at || new Date(s.start_time) >= new Date(m.joined_at))
+            );
             
             const totalMinutes = groupSessions.reduce((acc, s) => acc + s.duration_minutes, 0);
             return {
               ...profile,
-              role: m.role,
+              id: profile.id || m.user_id,
+              role: m.role || 'member',
               joined_at: m.joined_at,
               groupMinutes: totalMinutes,
               groupHours: (totalMinutes / 60).toFixed(1)
@@ -95,10 +140,10 @@ export default function GroupDetails() {
           
         setMembers(membersWithStats);
 
-        // Fetch join requests if user is admin
-        const currentUserRole = membersData.find(m => m.profiles && (m.profiles as any).id === user.id)?.role;
-        if (currentUserRole === 'admin' || isGlobalAdmin) {
-          const { data: requestsData, error: requestsError } = await supabase
+        // Fetch join requests if admin or creator
+        const currentUserRole = allMembers.find(m => m.user_id === user.id || getProfile(m.profiles)?.id === user.id)?.role;
+        if (currentUserRole === 'admin' || isCreator || isGlobalAdmin) {
+          const { data: requestsData } = await supabase
             .from('group_requests')
             .select(`
               id,
@@ -110,14 +155,13 @@ export default function GroupDetails() {
             .eq('group_id', id)
             .eq('status', 'pending');
             
-          if (!requestsError && requestsData) {
+          if (requestsData) {
             setJoinRequests(requestsData);
           }
         }
 
-        // Fetch messages
+        // Fetch group messages
         let groupMsgs: any[] = [];
-        const getProfile = (val: any) => (Array.isArray(val) ? val[0] : val);
 
         const { data: messagesData, error: messagesError } = await supabase
           .from('group_messages')
@@ -152,9 +196,6 @@ export default function GroupDetails() {
         
       } catch (error: any) {
         console.warn('Group details fetch notice:', error);
-        if (error?.code === 'PGRST116') {
-          navigate('/groups');
-        }
       } finally {
         setLoading(false);
       }
@@ -350,7 +391,7 @@ export default function GroupDetails() {
   };
 
   const currentUserRole = members.find(m => m.id === user?.id)?.role;
-  const isGlobalAdmin = user?.email === 'fllimonm1212@gmail.com';
+  const isGlobalAdmin = Boolean(user?.email && ['fllimonm1212@gmail.com', 'fllimonm@gmail.com'].includes(user.email));
   const canManageMembers = currentUserRole === 'admin' || isGlobalAdmin;
 
   if (loading) {

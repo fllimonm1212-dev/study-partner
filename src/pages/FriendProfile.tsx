@@ -6,7 +6,7 @@ import { motion } from 'motion/react';
 import { cn } from '../components/Sidebar';
 import { useAuth } from '../contexts/AuthContext';
 import { toast } from 'sonner';
-import { isDemoModeEnabled, getDemoAccounts, isDemoFriend, addDemoFriend } from '../lib/demoAccounts';
+import { isDemoModeEnabled, getDemoAccounts, isDemoFriend, addDemoFriend, removeDemoFriend } from '../lib/demoAccounts';
 
 interface ProfileData {
   id: string;
@@ -50,6 +50,8 @@ export default function FriendProfile() {
     fetchProfile();
     fetchRecentSessions();
     fetchFriendshipStatus();
+
+    if (id.startsWith('demo-user-')) return;
 
     // Subscribe to real-time updates for study sessions
     const channel = supabase.channel(`friend_sessions_${id}`)
@@ -180,6 +182,19 @@ export default function FriendProfile() {
     if (!user || !id || actionLoading) return;
     setActionLoading(true);
 
+    if (id.startsWith('demo-user-')) {
+      if (status === 'accepted') {
+        addDemoFriend(id);
+        setFriendshipStatus('accepted');
+      } else {
+        removeDemoFriend(id);
+        setFriendshipStatus('none');
+      }
+      toast.success(`Request ${status === 'accepted' ? 'accepted' : 'rejected'}`);
+      setActionLoading(false);
+      return;
+    }
+
     try {
       let targetReqId = requestId;
       if (!targetReqId) {
@@ -239,7 +254,7 @@ export default function FriendProfile() {
             total_stars: found.total_stars,
             current_streak: found.current_streak,
             created_at: new Date(Date.now() - 30 * 86400000).toISOString(),
-            interests: found.interests
+            interests: (found as any).interests || []
           });
         }
         return;
@@ -262,6 +277,20 @@ export default function FriendProfile() {
 
   const fetchRecentSessions = async () => {
     try {
+      if (id?.startsWith('demo-user-')) {
+        const demoAccounts = getDemoAccounts();
+        const found = demoAccounts.find(d => d.id === id);
+        const now = new Date();
+        const demoSessions = [
+          { id: 'ds-1', subject_name: 'Physics 1st Paper', activity_type: 'study', duration_minutes: 45, start_time: new Date(now.getTime() - 2 * 3600000).toISOString(), is_counted: true },
+          { id: 'ds-2', subject_name: 'Higher Mathematics', activity_type: 'problem', duration_minutes: 60, start_time: new Date(now.getTime() - 6 * 3600000).toISOString(), is_counted: true },
+          { id: 'ds-3', subject_name: 'Chemistry 2nd Paper', activity_type: 'lecture', duration_minutes: 30, start_time: new Date(now.getTime() - 24 * 3600000).toISOString(), is_counted: true }
+        ];
+        setRecentSessions(demoSessions as any);
+        setTodayMinutes(Math.round(((found?.total_stars || 300) / 10)));
+        return;
+      }
+
       const { data, error } = await supabase
         .from('study_sessions')
         .select('*')

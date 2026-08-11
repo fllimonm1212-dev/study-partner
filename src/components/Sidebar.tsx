@@ -19,7 +19,8 @@ import {
   FileText,
   Linkedin,
   HelpCircle,
-  StickyNote
+  StickyNote,
+  Calculator
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -43,6 +44,7 @@ const navItems = [
   { name: 'Challenges', path: '/challenges', icon: Target },
   { name: 'Tasks', path: '/tasks', icon: CheckCircle2 },
   { name: 'Study Notes', path: '/notes', icon: StickyNote },
+  { name: 'Calculator & Formulas', path: '/calculator', icon: Calculator },
   { name: 'Analytics', path: '/analytics', icon: BarChart3 },
   { name: 'Profile', path: '/profile', icon: User },
   { name: 'Complain & Request for Feature', path: '/feedback', icon: HelpCircle },
@@ -122,7 +124,7 @@ export default function Sidebar({ isOpen, onClose }: { isOpen?: boolean; onClose
         </div>
         
         <nav className="flex-1 overflow-y-auto py-6 px-4 space-y-1.5 custom-scrollbar">
-          {navItems.filter(item => item.name !== 'Admin Panel' || user?.email === 'fllimonm1212@gmail.com').map((item) => (
+          {navItems.filter(item => item.name !== 'Admin Panel' || (user?.email && ['fllimonm1212@gmail.com', 'fllimonm@gmail.com'].includes(user.email))).map((item) => (
             <NavLink
               key={item.name}
               to={item.path}

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useOutletContext, useNavigate } from 'react-router-dom';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { Clock, BookOpen, MonitorPlay, PenTool, Flame, Users, Trophy, Star, Play, Pause, Square, Coffee, X, MessageSquare, CheckCircle2, AlertCircle, ArrowRight } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, AreaChart, Area } from 'recharts';
+import { Clock, BookOpen, MonitorPlay, PenTool, Flame, Users, Trophy, Star, Play, Pause, Square, Coffee, X, MessageSquare, CheckCircle2, AlertCircle, ArrowRight, Calendar, TrendingUp, Award, Sparkles, Activity, StickyNote, Plus, Pin, Trash2, Copy, ExternalLink, Check, Calculator } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -53,6 +53,14 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   return null;
 };
 
+interface QuickNote {
+  id: string;
+  content: string;
+  tag: 'reminder' | 'idea' | 'formula' | 'urgent';
+  isPinned: boolean;
+  createdAt: string;
+}
+
 export default function Dashboard() {
   const { user } = useAuth();
   const { t } = useLanguage();
@@ -77,8 +85,81 @@ export default function Dashboard() {
   const [productivityScore, setProductivityScore] = useState(0);
   const [studyTip, setStudyTip] = useState('');
   const [weeklyGoal, setWeeklyGoal] = useState(1200); // 20 hours
+  const [thirtyDayData, setThirtyDayData] = useState<any[]>([]);
+  const [thirtyDayStats, setThirtyDayStats] = useState({
+    activeDays: 0,
+    totalMinutes: 0,
+    consistencyRate: 0,
+    avgDailyMinutes: 0,
+    goalMetDays: 0
+  });
+  const [viewMode30, setViewMode30] = useState<'grid' | 'trend'>('grid');
   const { activeUsers } = useOutletContext<{ activeUsers: any[] }>();
   const [currentTime, setCurrentTime] = useState(Date.now());
+
+  // Quick Notes State
+  const [quickNotes, setQuickNotes] = useState<QuickNote[]>(() => {
+    if (user?.id) {
+      const saved = localStorage.getItem(`quick_notes_${user.id}`);
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch {}
+      }
+    }
+    return [
+      {
+        id: 'qn-1',
+        content: 'Revise Integration formulas before tomorrow\'s Exam 📐',
+        tag: 'formula',
+        isPinned: true,
+        createdAt: new Date().toISOString()
+      },
+      {
+        id: 'qn-2',
+        content: 'Finish Physics Optics chapter notes & practice questions ⚡',
+        tag: 'urgent',
+        isPinned: false,
+        createdAt: new Date(Date.now() - 3600000).toISOString()
+      }
+    ];
+  });
+  const [newNoteText, setNewNoteText] = useState('');
+  const [newNoteTag, setNewNoteTag] = useState<'reminder' | 'idea' | 'formula' | 'urgent'>('reminder');
+  const [copiedNoteId, setCopiedNoteId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (user?.id) {
+      localStorage.setItem(`quick_notes_${user.id}`, JSON.stringify(quickNotes));
+    }
+  }, [quickNotes, user]);
+
+  const handleAddQuickNote = () => {
+    if (!newNoteText.trim()) return;
+    const note: QuickNote = {
+      id: 'qn-' + Date.now(),
+      content: newNoteText.trim(),
+      tag: newNoteTag,
+      isPinned: false,
+      createdAt: new Date().toISOString()
+    };
+    setQuickNotes(prev => [note, ...prev]);
+    setNewNoteText('');
+  };
+
+  const handleTogglePinQuickNote = (id: string) => {
+    setQuickNotes(prev => prev.map(n => n.id === id ? { ...n, isPinned: !n.isPinned } : n));
+  };
+
+  const handleDeleteQuickNote = (id: string) => {
+    setQuickNotes(prev => prev.filter(n => n.id !== id));
+  };
+
+  const handleCopyQuickNote = (id: string, text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedNoteId(id);
+    setTimeout(() => setCopiedNoteId(null), 2000);
+  };
 
   // Timer State
   const [activeType, setActiveType] = useState<ActivityType>(() => 
@@ -350,15 +431,15 @@ export default function Dashboard() {
         }
       }
 
-      // Fetch Study Sessions for the last 7 days
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      // Fetch Study Sessions for the last 30 days
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
       
       const { data: sessions } = await supabase
         .from('study_sessions')
         .select('*')
         .eq('user_id', user.id)
-        .gte('start_time', sevenDaysAgo.toISOString());
+        .gte('start_time', thirtyDaysAgo.toISOString());
 
       // Calculate Today's Study
       const today = new Date();
@@ -372,12 +453,75 @@ export default function Dashboard() {
       const todayMinutes = todaysSessions.reduce((acc, curr) => acc + curr.duration_minutes, 0);
 
       // Calculate Weekly Study
-      const weeklyMinutes = sessions?.filter(s => s.is_counted).reduce((acc, curr) => acc + curr.duration_minutes, 0) || 0;
+      const sevenDaysAgoTime = new Date();
+      sevenDaysAgoTime.setDate(sevenDaysAgoTime.getDate() - 7);
+      const weeklyMinutes = sessions?.filter(s => s.is_counted && new Date(s.start_time) >= sevenDaysAgoTime).reduce((acc, curr) => acc + curr.duration_minutes, 0) || 0;
 
       setTodayMinutes(todayMinutes);
       setWeeklyMinutes(weeklyMinutes); // Keep total minutes
       setCurrentStreak(streak);
       setTotalStars(profile?.total_stars || 0);
+
+      // Process 30-Day Study Consistency Tracker Data
+      const thirtyDaysList: any[] = [];
+      const dayMinsMap = new Map<string, number>();
+
+      for (let i = 29; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const dateStr = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+        dayMinsMap.set(dateStr, 0);
+      }
+
+      sessions?.filter(s => s.is_counted).forEach(s => {
+        const sDate = new Date(s.start_time);
+        const dateStr = sDate.getFullYear() + '-' + String(sDate.getMonth() + 1).padStart(2, '0') + '-' + String(sDate.getDate()).padStart(2, '0');
+        if (dayMinsMap.has(dateStr)) {
+          dayMinsMap.set(dateStr, dayMinsMap.get(dateStr)! + (s.duration_minutes || 0));
+        }
+      });
+
+      let activeCount = 0;
+      let goalMetCount = 0;
+      let totalMins30 = 0;
+
+      dayMinsMap.forEach((mins, dateStr) => {
+        totalMins30 += mins;
+        if (mins > 0) activeCount++;
+        const targetGoal = profile?.daily_goal || 240;
+        if (mins >= targetGoal) goalMetCount++;
+
+        const [y, m, d] = dateStr.split('-').map(Number);
+        const dateObj = new Date(y, m - 1, d);
+        const label = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'short' });
+
+        let intensity = 0;
+        if (mins > 0 && mins < 30) intensity = 1;
+        else if (mins >= 30 && mins < 90) intensity = 2;
+        else if (mins >= 90 && mins < 180) intensity = 3;
+        else if (mins >= 180) intensity = 4;
+
+        thirtyDaysList.push({
+          dateStr,
+          label,
+          dayName,
+          fullDate: dateObj.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+          minutes: mins,
+          hours: Number((mins / 60).toFixed(1)),
+          intensity,
+          isGoalMet: mins >= targetGoal
+        });
+      });
+
+      setThirtyDayData(thirtyDaysList);
+      setThirtyDayStats({
+        activeDays: activeCount,
+        totalMinutes: totalMins30,
+        consistencyRate: Math.round((activeCount / 30) * 100),
+        avgDailyMinutes: Math.round(totalMins30 / 30),
+        goalMetDays: goalMetCount
+      });
 
       // Process Subject Data
       const subjectAgg = new Map();
@@ -688,11 +832,18 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto p-4 md:p-8">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">{t('Welcome back')}, {firstName}! 👋</h1>
           <p className="text-slate-600 dark:text-slate-400 text-sm mt-1">{t("Here's what's happening in your study network today.")}</p>
         </div>
+        <button
+          onClick={() => navigate('/calculator')}
+          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-lg shadow-indigo-600/20 transition-all self-start sm:self-auto shrink-0"
+        >
+          <Calculator size={16} />
+          <span>Scientific Calculator & Formulas</span>
+        </button>
       </div>
 
       {/* Quick Timer Section */}
@@ -1196,6 +1347,239 @@ export default function Dashboard() {
         </motion.div>
       </div>
 
+      {/* 30-Day Study Consistency Visual Progress Tracker */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.25 }}
+        className="glass-panel p-6 rounded-2xl space-y-6 border border-slate-800 shadow-xl"
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800/80">
+          <div>
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+                <Calendar size={18} />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
+                  30-Day Study Consistency
+                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-400">
+                    Last 30 Days
+                  </span>
+                </h2>
+              </div>
+            </div>
+            <p className="text-xs text-slate-400 mt-1">
+              Data visualization tracking daily study hours, active streaks, and goal consistency over the past 30 days.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 self-start sm:self-auto bg-slate-900/80 p-1 rounded-xl border border-slate-800">
+            <button
+              onClick={() => setViewMode30('grid')}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all",
+                viewMode30 === 'grid' 
+                  ? "bg-indigo-500 text-white shadow-md shadow-indigo-500/20" 
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+              )}
+            >
+              <Sparkles size={13} />
+              Heatmap Grid
+            </button>
+            <button
+              onClick={() => setViewMode30('trend')}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all",
+                viewMode30 === 'trend' 
+                  ? "bg-indigo-500 text-white shadow-md shadow-indigo-500/20" 
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+              )}
+            >
+              <TrendingUp size={13} />
+              Trend Curve
+            </button>
+          </div>
+        </div>
+
+        {/* Consistency Metrics Banner */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="bg-slate-900/60 border border-slate-800 p-4 rounded-xl flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 shrink-0">
+              <Activity size={20} />
+            </div>
+            <div>
+              <p className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">Consistency Rate</p>
+              <p className="text-lg font-bold text-white mt-0.5">{thirtyDayStats.consistencyRate}%</p>
+              <p className="text-[10px] text-indigo-400 font-medium">
+                {thirtyDayStats.consistencyRate >= 80 ? '🔥 Highly Consistent' : thirtyDayStats.consistencyRate >= 50 ? '👍 Steady Progress' : '🌱 Building Habit'}
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-slate-900/60 border border-slate-800 p-4 rounded-xl flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0">
+              <CheckCircle2 size={20} />
+            </div>
+            <div>
+              <p className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">Active Days</p>
+              <p className="text-lg font-bold text-white mt-0.5">{thirtyDayStats.activeDays} / 30 Days</p>
+              <p className="text-[10px] text-emerald-400 font-medium">{thirtyDayStats.goalMetDays} days goal met</p>
+            </div>
+          </div>
+
+          <div className="bg-slate-900/60 border border-slate-800 p-4 rounded-xl flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shrink-0">
+              <Clock size={20} />
+            </div>
+            <div>
+              <p className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">30-Day Total</p>
+              <p className="text-lg font-bold text-white mt-0.5">{(thirtyDayStats.totalMinutes / 60).toFixed(1)} hrs</p>
+              <p className="text-[10px] text-amber-400 font-medium">~{thirtyDayStats.avgDailyMinutes} mins/day avg</p>
+            </div>
+          </div>
+
+          <div className="bg-slate-900/60 border border-slate-800 p-4 rounded-xl flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400 shrink-0">
+              <Award size={20} />
+            </div>
+            <div>
+              <p className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">Goal Met Days</p>
+              <p className="text-lg font-bold text-white mt-0.5">{thirtyDayStats.goalMetDays} Days</p>
+              <p className="text-[10px] text-purple-400 font-medium">Target: {dailyGoal}m / day</p>
+            </div>
+          </div>
+        </div>
+
+        {/* View 1: 30-Day Heatmap Grid */}
+        {viewMode30 === 'grid' ? (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between text-xs text-slate-400 font-medium px-1">
+              <span>30 Days Ago</span>
+              <span>Today</span>
+            </div>
+
+            <div className="grid grid-cols-5 sm:grid-cols-10 md:grid-cols-15 gap-2">
+              {thirtyDayData.map((day) => {
+                let bgClass = "bg-slate-800/60 border-slate-700/40 text-slate-500 hover:border-slate-500";
+                if (day.intensity === 1) bgClass = "bg-indigo-950/60 border-indigo-800/60 text-indigo-300 hover:border-indigo-500";
+                if (day.intensity === 2) bgClass = "bg-indigo-700/50 border-indigo-500/60 text-indigo-100 hover:border-indigo-400 shadow-sm";
+                if (day.intensity === 3) bgClass = "bg-indigo-600 border-indigo-400 text-white hover:bg-indigo-500 shadow-md shadow-indigo-600/20";
+                if (day.intensity === 4) bgClass = "bg-emerald-500 border-emerald-300 text-white hover:bg-emerald-400 shadow-lg shadow-emerald-500/30";
+
+                return (
+                  <div
+                    key={day.dateStr}
+                    className={cn(
+                      "group relative p-2 rounded-xl border flex flex-col items-center justify-between h-20 transition-all transform hover:-translate-y-1 cursor-pointer",
+                      bgClass
+                    )}
+                  >
+                    <span className="text-[10px] font-bold tracking-tight opacity-80">{day.label}</span>
+                    <span className="text-xs font-black tabular-nums">{day.hours > 0 ? `${day.hours}h` : '0'}</span>
+                    <div className="w-1.5 h-1.5 rounded-full bg-current opacity-60"></div>
+
+                    {/* Hover Tooltip */}
+                    <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 hidden group-hover:flex flex-col items-center z-30 pointer-events-none w-36">
+                      <div className="bg-slate-900 border border-slate-700 p-2.5 rounded-xl shadow-2xl text-center space-y-1">
+                        <p className="text-[11px] font-bold text-white">{day.fullDate}</p>
+                        <p className="text-xs font-semibold text-indigo-400">{day.minutes} mins ({day.hours}h)</p>
+                        <p className="text-[10px] font-medium text-slate-400">
+                          {day.isGoalMet ? '🎯 Daily Goal Met!' : day.minutes > 0 ? '⚡ Studied' : '😴 Rest Day'}
+                        </p>
+                      </div>
+                      <div className="w-2 h-2 bg-slate-900 border-r border-b border-slate-700 rotate-45 -mt-1"></div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Legend */}
+            <div className="flex flex-wrap items-center justify-end gap-3 text-xs text-slate-400 pt-2 px-1">
+              <span className="text-[11px] font-medium">Study Intensity:</span>
+              <div className="flex items-center gap-1.5">
+                <div className="w-3.5 h-3.5 rounded bg-slate-800/80 border border-slate-700"></div>
+                <span className="text-[11px]">0h</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-3.5 h-3.5 rounded bg-indigo-950/60 border border-indigo-800/60"></div>
+                <span className="text-[11px]">&lt;0.5h</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-3.5 h-3.5 rounded bg-indigo-700/50 border border-indigo-500/60"></div>
+                <span className="text-[11px]">0.5-1.5h</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-3.5 h-3.5 rounded bg-indigo-600 border border-indigo-400"></div>
+                <span className="text-[11px]">1.5-3h</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-3.5 h-3.5 rounded bg-emerald-500 border border-emerald-300"></div>
+                <span className="text-[11px]">3h+ (Goal Met)</span>
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* View 2: 30-Day Trend Curve */
+          <div className="space-y-2">
+            <div className="h-64 w-full pt-2">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={thirtyDayData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="thirtyDayGlow" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#6366f1" stopOpacity={0.6}/>
+                      <stop offset="90%" stopColor="#6366f1" stopOpacity={0.0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} opacity={0.5} />
+                  <XAxis 
+                    dataKey="label" 
+                    stroke="#64748b" 
+                    fontSize={11} 
+                    tickLine={false} 
+                    axisLine={false}
+                    interval={4}
+                  />
+                  <YAxis 
+                    stroke="#64748b" 
+                    fontSize={11} 
+                    tickLine={false} 
+                    axisLine={false}
+                    tickFormatter={(val) => `${val}h`}
+                  />
+                  <Tooltip 
+                    content={({ active, payload }: any) => {
+                      if (active && payload && payload.length) {
+                        const data = payload[0].payload;
+                        return (
+                          <div className="bg-slate-900 border border-slate-700 p-3 rounded-xl shadow-2xl space-y-1">
+                            <p className="text-xs font-bold text-white">{data.label} ({data.dayName})</p>
+                            <p className="text-xs font-semibold text-indigo-400">{data.hours} hours ({data.minutes} mins)</p>
+                            <p className="text-[10px] text-slate-400">
+                              {data.isGoalMet ? '🎯 Daily Goal Met' : data.minutes > 0 ? '⚡ Studied' : 'Rest Day'}
+                            </p>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                  <Area 
+                    type="monotone" 
+                    dataKey="hours" 
+                    stroke="#6366f1" 
+                    strokeWidth={3}
+                    fillOpacity={1} 
+                    fill="url(#thirtyDayGlow)" 
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+      </motion.div>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main Chart */}
         <motion.div 
@@ -1336,45 +1720,186 @@ export default function Dashboard() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
-          className="lg:col-span-2 glass-panel p-6 rounded-2xl flex flex-col"
+          className="glass-panel p-6 rounded-2xl flex flex-col justify-between"
         >
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-white flex items-center gap-2">
               <Clock size={18} className="text-indigo-400" />
-              My Recent Activity
+              Recent Activity
             </h2>
-            <button className="text-xs font-bold text-indigo-400 hover:text-indigo-300 uppercase tracking-wider">
-              View All
-            </button>
           </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-3 flex-1 overflow-y-auto max-h-[360px] pr-1">
             {liveActivity.length > 0 ? liveActivity.map((activity) => (
               <div 
                 key={activity.id} 
                 onClick={() => activity.type === 'exam' ? navigate(`/exams/${activity.examId}`) : null}
                 className={cn(
-                  "flex items-center gap-4 p-3 bg-slate-800/30 rounded-xl border border-slate-700/50 group hover:border-indigo-500/30 transition-all",
+                  "flex items-center gap-3 p-3 bg-slate-800/40 rounded-xl border border-slate-700/50 group hover:border-indigo-500/30 transition-all",
                   activity.type === 'exam' && "cursor-pointer"
                 )}
               >
-                <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${activity.bg} ${activity.color}`}>
-                  {activity.type === 'study' && <BookOpen size={18} />}
-                  {activity.type === 'lecture' && <MonitorPlay size={18} />}
-                  {activity.type === 'problem' && <PenTool size={18} />}
-                  {activity.type === 'break' && <Clock size={18} />}
-                  {activity.type === 'exam' && <Trophy size={18} />}
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${activity.bg} ${activity.color}`}>
+                  {activity.type === 'study' && <BookOpen size={16} />}
+                  {activity.type === 'lecture' && <MonitorPlay size={16} />}
+                  {activity.type === 'problem' && <PenTool size={16} />}
+                  {activity.type === 'break' && <Clock size={16} />}
+                  {activity.type === 'exam' && <Trophy size={16} />}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold text-slate-200 truncate">
+                  <p className="text-xs font-bold text-slate-200 truncate">
                     {activity.action}
                   </p>
-                  <p className="text-xs text-slate-500">{activity.time}</p>
+                  <p className="text-[10px] text-slate-500">{activity.time}</p>
                 </div>
               </div>
             )) : (
-              <div className="col-span-2 py-10 text-center text-slate-500 italic text-sm">
+              <div className="py-12 text-center text-slate-500 italic text-xs">
                 No recent activity recorded.
+              </div>
+            )}
+          </div>
+        </motion.div>
+
+        {/* Quick Notes Widget */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.32 }}
+          className="glass-panel p-6 rounded-2xl flex flex-col justify-between space-y-4 border border-slate-800"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                <StickyNote size={17} />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-white flex items-center gap-1.5">
+                  Quick Notes
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-slate-800 text-amber-400 border border-amber-500/20">
+                    {quickNotes.length}
+                  </span>
+                </h2>
+              </div>
+            </div>
+            <button
+              onClick={() => navigate('/notes')}
+              className="flex items-center gap-1 text-xs font-semibold text-slate-400 hover:text-amber-400 transition-colors"
+              title="Open Full Notes"
+            >
+              <span>Notes</span>
+              <ExternalLink size={13} />
+            </button>
+          </div>
+
+          {/* New Quick Note Input */}
+          <div className="space-y-2 bg-slate-900/70 p-3 rounded-xl border border-slate-800">
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={newNoteText}
+                onChange={(e) => setNewNoteText(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleAddQuickNote()}
+                placeholder="Jot down a quick thought or formula..."
+                className="flex-1 bg-slate-800/80 border border-slate-700/60 rounded-lg px-3 py-1.5 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-amber-500/60 transition-colors"
+              />
+              <button
+                onClick={handleAddQuickNote}
+                disabled={!newNoteText.trim()}
+                className="bg-amber-500 hover:bg-amber-600 disabled:opacity-40 disabled:hover:bg-amber-500 text-slate-950 font-bold p-1.5 rounded-lg transition-all shadow-md shadow-amber-500/10 shrink-0"
+              >
+                <Plus size={16} />
+              </button>
+            </div>
+
+            {/* Tags Pills */}
+            <div className="flex items-center gap-1.5 pt-1 overflow-x-auto no-scrollbar">
+              <span className="text-[10px] text-slate-500 font-semibold shrink-0">Tag:</span>
+              {[
+                { id: 'reminder', label: '📌 Reminder', color: 'text-blue-400 border-blue-500/30' },
+                { id: 'formula', label: '📐 Formula', color: 'text-amber-400 border-amber-500/30' },
+                { id: 'urgent', label: '⚡ Urgent', color: 'text-rose-400 border-rose-500/30' },
+                { id: 'idea', label: '💡 Idea', color: 'text-purple-400 border-purple-500/30' },
+              ].map(tag => (
+                <button
+                  key={tag.id}
+                  onClick={() => setNewNoteTag(tag.id as any)}
+                  className={cn(
+                    "text-[10px] font-semibold px-2 py-0.5 rounded-md border transition-all shrink-0",
+                    newNoteTag === tag.id
+                      ? `${tag.color} bg-slate-800`
+                      : "text-slate-500 border-slate-800 hover:text-slate-300"
+                  )}
+                >
+                  {tag.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Quick Notes List */}
+          <div className="space-y-2 flex-1 overflow-y-auto max-h-[220px] pr-1">
+            {quickNotes.length > 0 ? (
+              [...quickNotes]
+                .sort((a, b) => Number(b.isPinned) - Number(a.isPinned))
+                .map((note) => {
+                  let tagBg = "bg-blue-500/10 text-blue-400 border-blue-500/20";
+                  if (note.tag === 'formula') tagBg = "bg-amber-500/10 text-amber-400 border-amber-500/20";
+                  if (note.tag === 'urgent') tagBg = "bg-rose-500/10 text-rose-400 border-rose-500/20";
+                  if (note.tag === 'idea') tagBg = "bg-purple-500/10 text-purple-400 border-purple-500/20";
+
+                  return (
+                    <div
+                      key={note.id}
+                      className={cn(
+                        "group relative p-2.5 rounded-xl border transition-all flex flex-col justify-between space-y-1.5",
+                        note.isPinned 
+                          ? "bg-slate-800/80 border-amber-500/30 shadow-sm" 
+                          : "bg-slate-900/40 border-slate-800 hover:border-slate-700"
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <span className={cn("text-[9px] font-bold uppercase px-1.5 py-0.5 rounded border", tagBg)}>
+                          {note.tag}
+                        </span>
+                        <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={() => handleTogglePinQuickNote(note.id)}
+                            className={cn(
+                              "p-1 rounded hover:bg-slate-700 transition-colors",
+                              note.isPinned ? "text-amber-400" : "text-slate-500 hover:text-slate-300"
+                            )}
+                            title={note.isPinned ? "Unpin Note" : "Pin Note"}
+                          >
+                            <Pin size={12} className={note.isPinned ? "fill-amber-400" : ""} />
+                          </button>
+                          <button
+                            onClick={() => handleCopyQuickNote(note.id, note.content)}
+                            className="p-1 rounded text-slate-500 hover:text-slate-300 hover:bg-slate-700 transition-colors"
+                            title="Copy Note"
+                          >
+                            {copiedNoteId === note.id ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                          </button>
+                          <button
+                            onClick={() => handleDeleteQuickNote(note.id)}
+                            className="p-1 rounded text-slate-500 hover:text-rose-400 hover:bg-slate-700 transition-colors"
+                            title="Delete Note"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      </div>
+
+                      <p className="text-xs text-slate-200 font-medium leading-relaxed whitespace-pre-wrap break-words">
+                        {note.content}
+                      </p>
+                    </div>
+                  );
+                })
+            ) : (
+              <div className="py-8 text-center text-slate-500 italic text-xs space-y-1">
+                <p>No quick notes yet.</p>
+                <p className="text-[10px] text-slate-600">Jot down formulas or reminders above!</p>
               </div>
             )}
           </div>

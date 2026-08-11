@@ -68,6 +68,24 @@ export default function Feedback() {
         }
       }
 
+      const newFbObj = {
+        id: crypto.randomUUID(),
+        user_id: user.id,
+        user_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'User',
+        user_email: user.email || '',
+        type,
+        message,
+        image_url: imageUrl,
+        status: 'pending',
+        created_at: new Date().toISOString()
+      };
+
+      try {
+        const localList = JSON.parse(localStorage.getItem('local_feedbacks') || '[]');
+        localList.unshift(newFbObj);
+        localStorage.setItem('local_feedbacks', JSON.stringify(localList));
+      } catch (e) {}
+
       const { error: insertError } = await supabase.from('feedback').insert({
         user_id: user.id,
         type,

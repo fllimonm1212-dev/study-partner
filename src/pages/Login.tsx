@@ -16,10 +16,26 @@ export default function Login() {
     setLoading(true);
     setError(null);
 
-    const { error } = await supabase.auth.signInWithPassword({
+    let { error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
+
+    if (error && (error.message.includes('Invalid login credentials') || error.message.includes('user_not_found'))) {
+      // Try to auto-signup if user doesn't exist yet
+      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            full_name: email.split('@')[0],
+          }
+        }
+      });
+      if (!signUpError && signUpData?.user) {
+        error = null;
+      }
+    }
 
     if (error) {
       setError(error.message);

@@ -6,6 +6,7 @@ import { MessageSquare, Search, User, Clock } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { cn } from '../components/Sidebar';
 import { toast } from 'sonner';
+import { isDemoModeEnabled, getDemoAccounts, getDemoAcceptedFriends, DEMO_MODE_EVENT } from '../lib/demoAccounts';
 
 export default function Messages() {
   const { user } = useAuth();
@@ -17,6 +18,9 @@ export default function Messages() {
   useEffect(() => {
     if (!user) return;
     fetchConversations();
+
+    const handleDemoChange = () => fetchConversations();
+    window.addEventListener(DEMO_MODE_EVENT, handleDemoChange);
 
     // Subscribe to new messages to refresh conversation list
     const channel = supabase.channel('messages_hub')
@@ -31,6 +35,7 @@ export default function Messages() {
       .subscribe();
 
     return () => {
+      window.removeEventListener(DEMO_MODE_EVENT, handleDemoChange);
       supabase.removeChannel(channel);
     };
   }, [user]);
@@ -64,7 +69,7 @@ export default function Messages() {
 
         if (!fallbackErr && fallbackMsgs && fallbackMsgs.length > 0) {
           const profileIds = Array.from(new Set(
-            fallbackMsgs.flatMap(m => [m.sender_id, m.receiver_id]).filter(Boolean)
+            fallbackMsgs.flatMap(m => [m.sender_id, m.receiver_id]).filter(id => id && !id.startsWith('demo-user-'))
           ));
 
           if (profileIds.length > 0) {
@@ -100,6 +105,40 @@ export default function Messages() {
           });
         }
       });
+
+      // Merge demo conversations if demo mode is enabled
+      if (isDemoModeEnabled()) {
+        const demoAcceptedIds = getDemoAcceptedFriends();
+        const demoAccounts = getDemoAccounts();
+        demoAccounts.forEach(demo => {
+          if (demoAcceptedIds.includes(demo.id)) {
+            const cacheKey = `demo_chat_${user.id}_${demo.id}`;
+            const localRaw = localStorage.getItem(cacheKey);
+            let lastMsg = null;
+            if (localRaw) {
+              try {
+                const parsed = JSON.parse(localRaw);
+                if (parsed.length > 0) {
+                  lastMsg = parsed[parsed.length - 1];
+                }
+              } catch {}
+            }
+
+            conversationMap.set(demo.id, {
+              user: {
+                id: demo.id,
+                full_name: demo.full_name,
+                avatar_url: demo.avatar_url
+              },
+              lastMessage: lastMsg || {
+                content: 'Tap to start conversation',
+                created_at: new Date().toISOString()
+              },
+              unreadCount: 0
+            });
+          }
+        });
+      }
 
       setConversations(Array.from(conversationMap.values()));
     } catch (error) {

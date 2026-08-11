@@ -14,6 +14,7 @@ import {
   UserPlus
 } from 'lucide-react';
 import { cn } from './Sidebar';
+import { isDemoModeEnabled, getDemoAccounts, getDemoAcceptedFriends, DEMO_MODE_EVENT } from '../lib/demoAccounts';
 
 interface FriendsSidebarProps {
   activeUsers: any[];
@@ -31,6 +32,9 @@ export default function FriendsSidebar({ activeUsers }: FriendsSidebarProps) {
     if (!user) return;
     fetchFriends();
 
+    const handleDemoChange = () => fetchFriends();
+    window.addEventListener(DEMO_MODE_EVENT, handleDemoChange);
+
     const channel = supabase.channel('friends_sidebar_updates')
       .on('postgres_changes', { 
         event: '*', 
@@ -40,6 +44,7 @@ export default function FriendsSidebar({ activeUsers }: FriendsSidebarProps) {
       .subscribe();
 
     return () => {
+      window.removeEventListener(DEMO_MODE_EVENT, handleDemoChange);
       supabase.removeChannel(channel);
     };
   }, [user]);
@@ -81,7 +86,7 @@ export default function FriendsSidebar({ activeUsers }: FriendsSidebarProps) {
 
         if (!reqError && rawRequests && rawRequests.length > 0) {
           const targetIds = Array.from(new Set(
-            rawRequests.flatMap(r => [r.sender_id, r.receiver_id]).filter(id => id && id !== user.id)
+            rawRequests.flatMap(r => [r.sender_id, r.receiver_id]).filter(id => id && id !== user.id && !id.startsWith('demo-user-'))
           ));
 
           if (targetIds.length > 0) {
@@ -100,6 +105,25 @@ export default function FriendsSidebar({ activeUsers }: FriendsSidebarProps) {
             }).filter(Boolean);
           }
         }
+      }
+
+      // Merge demo friends if demo mode is enabled
+      if (isDemoModeEnabled()) {
+        const demoAcceptedIds = getDemoAcceptedFriends();
+        const demoAccounts = getDemoAccounts();
+        const demoFriends = demoAccounts
+          .filter(d => demoAcceptedIds.includes(d.id))
+          .map(d => ({
+            id: d.id,
+            full_name: d.full_name,
+            avatar_url: d.avatar_url,
+            total_stars: d.total_stars,
+            class_id: d.class_id,
+            is_demo: true,
+            friendship_id: `demo-friendship-${d.id}`
+          }));
+
+        friendsList = [...friendsList, ...demoFriends];
       }
 
       setFriends(friendsList);

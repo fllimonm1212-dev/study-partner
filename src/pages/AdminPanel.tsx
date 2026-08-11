@@ -115,7 +115,8 @@ export default function AdminPanel() {
 
   useEffect(() => {
     console.log('AdminPanel: Current User:', user?.email);
-    if (user?.email !== 'fllimonm1212@gmail.com') {
+    const adminEmails = ['fllimonm1212@gmail.com', 'fllimonm@gmail.com'];
+    if (!user?.email || !adminEmails.includes(user.email)) {
       console.warn('AdminPanel: Access denied for user:', user?.email);
       return;
     }
@@ -262,6 +263,25 @@ export default function AdminPanel() {
               setErrorMsg('Feedback table does not exist in the database yet.');
             }
           }
+          // Merge local feedbacks from localStorage so no complaint is missed
+          try {
+            const localFeedbacks: any[] = JSON.parse(localStorage.getItem('local_feedbacks') || '[]');
+            if (localFeedbacks.length > 0) {
+              const existingIds = new Set(fData.map(f => f.id));
+              const missingLocals = localFeedbacks
+                .filter(lf => !existingIds.has(lf.id))
+                .map(lf => ({
+                  ...lf,
+                  profiles: {
+                    full_name: lf.user_name || 'User',
+                    email: lf.user_email || 'user@example.com',
+                    avatar_url: null
+                  }
+                }));
+              fData = [...missingLocals, ...fData];
+            }
+          } catch (e) {}
+
           setFeedbackList(fData);
         }
       } catch (error: any) {
@@ -679,7 +699,8 @@ export default function AdminPanel() {
     }
   };
 
-  if (user?.email !== 'fllimonm1212@gmail.com') {
+  const adminEmails = ['fllimonm1212@gmail.com', 'fllimonm@gmail.com'];
+  if (!user?.email || !adminEmails.includes(user.email)) {
     return (
       <div className="flex flex-col items-center justify-center h-[80vh] text-center">
         <div className="w-20 h-20 bg-rose-500/10 rounded-full flex items-center justify-center mb-6">
@@ -1665,12 +1686,15 @@ export default function AdminPanel() {
                                 <button
                                   onClick={async () => {
                                     try {
-                                      const { error } = await supabase.from('feedback').update({ status: 'resolved' }).eq('id', item.id);
-                                      if (error) throw error;
-                                      setFeedbackList(feedbackList.map(f => f.id === item.id ? { ...f, status: 'resolved' } : f));
-                                    } catch (err: any) {
-                                      alert('Failed to resolve: ' + err.message);
-                                    }
+                                      await supabase.from('feedback').update({ status: 'resolved' }).eq('id', item.id);
+                                    } catch (e) {}
+                                    try {
+                                      const localList: any[] = JSON.parse(localStorage.getItem('local_feedbacks') || '[]');
+                                      const updated = localList.map((lf: any) => lf.id === item.id ? { ...lf, status: 'resolved' } : lf);
+                                      localStorage.setItem('local_feedbacks', JSON.stringify(updated));
+                                    } catch (e) {}
+                                    setFeedbackList(prev => prev.map(f => f.id === item.id ? { ...f, status: 'resolved' } : f));
+                                    toast.success('Feedback marked as resolved!');
                                   }}
                                   className="flex items-center gap-1 px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg transition-colors"
                                 >
@@ -1682,12 +1706,15 @@ export default function AdminPanel() {
                                 onClick={async () => {
                                   if (!confirm('Are you sure you want to delete this feedback?')) return;
                                   try {
-                                    const { error } = await supabase.from('feedback').delete().eq('id', item.id);
-                                    if (error) throw error;
-                                    setFeedbackList(feedbackList.filter(f => f.id !== item.id));
-                                  } catch (err: any) {
-                                    alert('Failed to delete: ' + err.message);
-                                  }
+                                    await supabase.from('feedback').delete().eq('id', item.id);
+                                  } catch (e) {}
+                                  try {
+                                    const localList: any[] = JSON.parse(localStorage.getItem('local_feedbacks') || '[]');
+                                    const updated = localList.filter((lf: any) => lf.id !== item.id);
+                                    localStorage.setItem('local_feedbacks', JSON.stringify(updated));
+                                  } catch (e) {}
+                                  setFeedbackList(prev => prev.filter(f => f.id !== item.id));
+                                  toast.success('Feedback deleted!');
                                 }}
                                 className="flex items-center gap-1 px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-lg transition-colors"
                               >

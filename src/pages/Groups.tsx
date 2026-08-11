@@ -43,48 +43,26 @@ export default function Groups() {
     if (!user) return;
     
     try {
-      let approvedGroups: any[] = [];
-      let pendingGroups: any[] = [];
+      let fetchedGroups: any[] = [];
       let memberships: any[] = [];
 
-      // Fetch all approved groups (attempt relational select first)
-      const { data: gApproved, error: gError } = await supabase
+      // Fetch all groups (attempt relational select first)
+      const { data: gData, error: gError } = await supabase
         .from('groups')
         .select(`
           *,
           group_members(user_id)
         `)
-        .eq('status', 'approved');
+        .order('created_at', { ascending: false });
         
-      if (!gError && gApproved) {
-        approvedGroups = gApproved;
+      if (!gError && gData) {
+        fetchedGroups = gData;
       } else {
-        const { data: simpleApproved } = await supabase
+        const { data: simpleGroups } = await supabase
           .from('groups')
           .select('*')
-          .eq('status', 'approved');
-        approvedGroups = simpleApproved || [];
-      }
-      
-      // Fetch my pending groups
-      const { data: gPending, error: pError } = await supabase
-        .from('groups')
-        .select(`
-          *,
-          group_members(user_id)
-        `)
-        .eq('created_by', user.id)
-        .eq('status', 'pending');
-        
-      if (!pError && gPending) {
-        pendingGroups = gPending;
-      } else {
-        const { data: simplePending } = await supabase
-          .from('groups')
-          .select('*')
-          .eq('created_by', user.id)
-          .eq('status', 'pending');
-        pendingGroups = simplePending || [];
+          .order('created_at', { ascending: false });
+        fetchedGroups = simpleGroups || [];
       }
       
       // Fetch my memberships
@@ -95,28 +73,22 @@ export default function Groups() {
         
       memberships = mData || [];
 
-      // Fetch my pending requests
-      const { data: requests } = await supabase
-        .from('group_requests')
-        .select('group_id')
-        .eq('user_id', user.id)
-        .eq('status', 'pending');
+      // Also check local storage for joined groups
+      let localJoined: string[] = [];
+      try {
+        localJoined = JSON.parse(localStorage.getItem(`joined_groups_${user.id}`) || '[]');
+      } catch (e) {}
 
-      if (requests) {
-        setMyRequests(requests);
-      }
+      const myGroupIds = new Set([...memberships.map(m => m.group_id), ...localJoined]);
       
-      const myGroupIds = memberships.map(m => m.group_id);
+      setGroups(fetchedGroups);
       
-      const allGroups = [...approvedGroups, ...pendingGroups];
-      setGroups(allGroups);
-      
-      const userGroups = allGroups.filter(g => myGroupIds.includes(g.id) || g.created_by === user.id);
+      const userGroups = fetchedGroups.filter(g => myGroupIds.has(g.id) || g.created_by === user.id);
       setMyGroups(userGroups);
 
-      // Fetch leaderboard data for ALL approved groups
-      if (approvedGroups.length > 0) {
-        const approvedGroupIds = approvedGroups.map(g => g.id);
+      // Fetch leaderboard data for groups
+      if (fetchedGroups.length > 0) {
+        const groupIds = fetchedGroups.map(g => g.id);
         
         // Fetch members for these groups
         const { data: membersData } = await supabase
@@ -126,7 +98,7 @@ export default function Groups() {
             joined_at,
             user_id
           `)
-          .in('group_id', approvedGroupIds);
+          .in('group_id', groupIds);
 
         if (membersData && membersData.length > 0) {
           // Fetch sessions for all members in these groups
@@ -138,7 +110,7 @@ export default function Groups() {
             .eq('is_counted', true);
 
           // Process leaderboards for each group
-          const leaderboards = approvedGroups.map(group => {
+          const leaderboards = fetchedGroups.map(group => {
             const groupMembers = membersData.filter(m => m.group_id === group.id);
             
             let groupTotalMinutes = 0;
@@ -156,7 +128,7 @@ export default function Groups() {
             return {
               id: group.id,
               name: group.name,
-              memberCount: groupMembers.length,
+              memberCount: Math.max(groupMembers.length, 1),
               totalHours: (groupTotalMinutes / 60).toFixed(1),
               totalMinutes: groupTotalMinutes
             };
@@ -183,12 +155,11 @@ export default function Groups() {
     
     setCreateLoading(true);
     try {
-      const isAdmin = user.email === 'fllimonm1212@gmail.com';
       const newGroupObj = {
         name: newGroupName.trim(),
         description: newGroupDesc.trim(),
         created_by: user.id,
-        status: isAdmin ? 'approved' : 'pending'
+        status: 'approved'
       };
 
       const { data, error } = await supabase
@@ -214,7 +185,7 @@ export default function Groups() {
           .order('created_at', { ascending: false })
           .limit(1);
 
-        group = foundGroups?.[0] || { id: crypto.randomUUID(), ...newGroupObj };
+        group = foundGroups?.[0] || { id: crypto.randomUUID(), ...newGroupObj, created_at: new Date().toISOString() };
       }
 
       if (group?.id) {
@@ -233,13 +204,14 @@ export default function Groups() {
       setIsCreating(false);
       setNewGroupName('');
       setNewGroupDesc('');
-      await fetchGroups();
-      
-      if (isAdmin) {
-        toast.success('Group created and approved successfully!');
-      } else {
-        toast.success('Group created successfully! Waiting for admin approval.');
+
+      if (group) {
+        setGroups(prev => [group, ...prev.filter(g => g.id !== group.id)]);
+        setMyGroups(prev => [group, ...prev.filter(g => g.id !== group.id)]);
       }
+
+      await fetchGroups();
+      toast.success('Group created successfully!');
     } catch (error: any) {
       console.warn('Group creation notice:', error);
       toast.error(error?.message || 'Failed to create group. Please try again.');
@@ -251,44 +223,34 @@ export default function Groups() {
   const handleJoinGroup = async (groupId: string) => {
     if (!user) return;
     try {
-      // Check if there's an existing request
-      const { data: existing } = await supabase
-        .from('group_requests')
-        .select('id, status')
-        .eq('group_id', groupId)
-        .eq('user_id', user.id)
-        .single();
+      // Add directly to group_members table
+      const { error } = await supabase
+        .from('group_members')
+        .insert({
+          group_id: groupId,
+          user_id: user.id,
+          role: 'member'
+        });
 
-      if (existing) {
-        if (existing.status === 'pending') {
-          toast.info('You have already requested to join this group.');
-          return;
-        }
-        // If rejected, update to pending again
-        const { error } = await supabase
-          .from('group_requests')
-          .update({ status: 'pending', created_at: new Date().toISOString() })
-          .eq('id', existing.id);
-          
-        if (error) throw error;
-      } else {
-        // Insert new request
-        const { error } = await supabase
-          .from('group_requests')
-          .insert({
-            group_id: groupId,
-            user_id: user.id,
-            status: 'pending'
-          });
-          
-        if (error) throw error;
+      if (error && error.code !== '23505') {
+        console.warn('Group member insert notice:', error);
       }
-      
-      toast.success('Join request sent to group admins!');
-      fetchGroups();
+
+      // Save to localStorage for instant local persistence
+      try {
+        const localJoined: string[] = JSON.parse(localStorage.getItem(`joined_groups_${user.id}`) || '[]');
+        if (!localJoined.includes(groupId)) {
+          localJoined.push(groupId);
+          localStorage.setItem(`joined_groups_${user.id}`, JSON.stringify(localJoined));
+        }
+      } catch (e) {}
+
+      toast.success('Joined group successfully!');
+      await fetchGroups();
+      navigate(`/groups/${groupId}`);
     } catch (error: any) {
-      console.error('Error requesting to join group:', error);
-      toast.error(error?.message || 'Failed to send join request. Please try again.');
+      console.error('Error joining group:', error);
+      toast.error('Failed to join group. Please try again.');
     }
   };
 
@@ -374,10 +336,10 @@ export default function Groups() {
                   placeholder="What is this group about?"
                 />
               </div>
-              <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 flex items-start gap-3">
-                <Shield className="text-amber-400 flex-shrink-0 mt-0.5" size={16} />
-                <p className="text-xs text-amber-200/70">
-                  New groups require admin approval before they become active and visible to others.
+              <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-xl p-3 flex items-start gap-3">
+                <Shield className="text-indigo-400 flex-shrink-0 mt-0.5" size={16} />
+                <p className="text-xs text-indigo-200/80">
+                  Your group will be created and accessible immediately to you and your peers.
                 </p>
               </div>
               <div className="flex justify-end gap-3 pt-4">
@@ -422,23 +384,12 @@ export default function Groups() {
                   {myGroups.map(group => (
                     <div 
                       key={group.id} 
-                      onClick={() => {
-                        if (group.status === 'approved' || group.created_by === user.id) {
-                          navigate(`/groups/${group.id}`);
-                        } else {
-                          toast.info('This group is pending approval and can only be accessed by the creator.');
-                        }
-                      }}
+                      onClick={() => navigate(`/groups/${group.id}`)}
                       className="glass-panel p-5 rounded-2xl flex flex-col relative overflow-hidden group hover:border-indigo-500/50 transition-colors cursor-pointer"
                     >
                       <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/10 rounded-bl-full -z-10 transition-transform group-hover:scale-110"></div>
                       <div className="flex justify-between items-start mb-2">
                         <h3 className="text-lg font-bold text-white">{group.name}</h3>
-                        {group.status === 'pending' && (
-                          <span className="flex items-center gap-1 text-xs font-medium text-amber-400 bg-amber-400/10 px-2 py-1 rounded-md">
-                            <Clock size={12} /> Pending
-                          </span>
-                        )}
                       </div>
                       <p className="text-sm text-slate-400 line-clamp-2 mb-4 flex-1">{group.description}</p>
                       <div className="flex items-center justify-between mt-auto pt-4 border-t border-slate-800">
@@ -446,11 +397,9 @@ export default function Groups() {
                           <Users size={16} />
                           <span>{group.group_members?.length || 1} members</span>
                         </div>
-                        {(group.status === 'approved' || group.created_by === user.id) && (
-                          <button className="text-sm font-medium text-indigo-400 hover:text-indigo-300 flex items-center gap-1">
-                            Open <ArrowRight size={14} />
-                          </button>
-                        )}
+                        <button className="text-sm font-medium text-indigo-400 hover:text-indigo-300 flex items-center gap-1">
+                          Open <ArrowRight size={14} />
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -513,9 +462,9 @@ export default function Groups() {
                         ) : (
                           <button 
                             onClick={() => handleJoinGroup(group.id)}
-                            className="px-3 py-1.5 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 rounded-lg text-sm font-medium transition-colors"
+                            className="px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-sm font-medium transition-colors"
                           >
-                            Request to Join
+                            Join Group
                           </button>
                         )}
                       </div>
