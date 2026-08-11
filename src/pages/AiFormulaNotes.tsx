@@ -153,8 +153,8 @@ export default function AiFormulaNotes() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 12 * 1024 * 1024) {
-      toast.error('ফাইলটি ১২ মেগাবাইটের চেয়ে ছোট হতে হবে (12MB limit)।');
+    if (file.size > 3.5 * 1024 * 1024) {
+      toast.error('Vercel সার্ভার সীমার কারণে ৩.৫ মেগাবাইটের কম সাইজের PDF বা ছবি আপলোড করুন।');
       return;
     }
 
@@ -214,7 +214,19 @@ export default function AiFormulaNotes() {
         }),
       });
 
-      const resData = await response.json().catch(() => ({ success: false, error: 'সার্ভার থেকে সঠিক রেসপন্স পাওয়া যায়নি।' }));
+      let resData: any;
+      try {
+        const text = await response.text();
+        resData = JSON.parse(text);
+      } catch {
+        if (response.status === 413) {
+          throw new Error('ফাইলের আকার খুব বড় (Vercel Limit: Max 3.5MB)। ৩.৫ মেগাবাইটের কম সাইজের PDF অথবা টেক্সট দিয়ে চেষ্টা করুন।');
+        } else if (response.status === 504 || response.status === 502) {
+          throw new Error('AI রিকোয়েস্ট সার্ভার টাইমআউট হয়েছে। ছোট সাইজের ফাইল বা টেক্সট দিয়ে আবার চেষ্টা করুন।');
+        } else {
+          throw new Error(`সার্ভার থেকে সঠিক রেসপন্স পাওয়া যায়নি (HTTP status: ${response.status})। Vercel Settings-এ GEMINI_API_KEY কনফিগার করা আছে কিনা নিশ্চিত করুন।`);
+        }
+      }
 
       if (!response.ok || !resData.success) {
         throw new Error(resData.error || 'AI প্রসেসিংয়ে সমস্যা হয়েছে।');
@@ -227,7 +239,7 @@ export default function AiFormulaNotes() {
       console.error('Extraction error:', err);
       let msg = err.message || 'AI সার্ভিস সংযোগে সমস্যা। আবার চেষ্টা করুন।';
       if (err.name === 'TypeError' || msg.includes('Failed to fetch')) {
-        msg = 'সার্ভারের সাথে নেটওয়ার্ক সংযোগ বিঘ্নিত হয়েছে বা ফাইল সাইজ খুব বড়। ১০ মেগাবাইটের কম সাইজের PDF বা স্টাডি টেক্সট দিয়ে চেষ্টা করুন।';
+        msg = 'সার্ভারের সাথে নেটওয়ার্ক সংযোগ বিচ্ছিন্ন হয়েছে। আপনার ইন্টারনেট সংযোগ পরীক্ষা করুন।';
       }
       toast.error(msg);
     } finally {
@@ -263,7 +275,19 @@ export default function AiFormulaNotes() {
         }),
       });
 
-      const resData = await response.json().catch(() => ({ success: false, error: 'সার্ভার থেকে প্রশ্নপত্রের তথ্য পাওয়া যায়নি।' }));
+      let resData: any;
+      try {
+        const text = await response.text();
+        resData = JSON.parse(text);
+      } catch {
+        if (response.status === 413) {
+          throw new Error('ফাইলের আকার খুব বড় (Vercel Limit: Max 3.5MB)। ৩.৫ মেগাবাইটের কম সাইজের PDF অথবা টেক্সট দিয়ে চেষ্টা করুন।');
+        } else if (response.status === 504 || response.status === 502) {
+          throw new Error('AI রিকোয়েস্ট সার্ভার টাইমআউট হয়েছে। ছোট সাইজের ফাইল বা টেক্সট দিয়ে আবার চেষ্টা করুন।');
+        } else {
+          throw new Error(`সার্ভার থেকে সঠিক রেসপন্স পাওয়া যায়নি (HTTP status: ${response.status})। Vercel Settings-এ GEMINI_API_KEY কনফিগার করা আছে কিনা নিশ্চিত করুন।`);
+        }
+      }
 
       if (!response.ok || !resData.success || !resData.data || !Array.isArray(resData.data.questions) || resData.data.questions.length === 0) {
         throw new Error(resData.error || 'AI প্রশ্ন তৈরিতে সমস্যা হয়েছে। আবার চেষ্টা করুন।');
@@ -278,7 +302,7 @@ export default function AiFormulaNotes() {
       console.error('MCQ Generation error:', err);
       let msg = err.message || 'প্রশ্ন তৈরিতে সমস্যা। আবার চেষ্টা করুন।';
       if (err.name === 'TypeError' || msg.includes('Failed to fetch')) {
-        msg = 'সার্ভারের সাথে নেটওয়ার্ক সংযোগ বিঘ্নিত হয়েছে বা ফাইল সাইজ খুব বড়। ১০ মেগাবাইটের কম সাইজের PDF বা স্টাডি টেক্সট দিয়ে চেষ্টা করুন।';
+        msg = 'সার্ভারের সাথে নেটওয়ার্ক সংযোগ বিচ্ছিন্ন হয়েছে। আপনার ইন্টারনেট সংযোগ পরীক্ষা করুন।';
       }
       toast.error(msg);
     } finally {
