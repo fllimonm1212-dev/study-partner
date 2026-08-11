@@ -21,7 +21,8 @@ import {
   Presentation,
   HelpCircle,
   StickyNote,
-  Calculator
+  Calculator,
+  Compass
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -47,6 +48,7 @@ const navItems = [
   { name: 'Study Notes', path: '/notes', icon: StickyNote },
   { name: 'Calculator & Formulas', path: '/calculator', icon: Calculator },
   { name: 'Analytics', path: '/analytics', icon: BarChart3 },
+  { name: 'User Manual (ব্যবহার নির্দেশিকা)', path: '/manual', icon: Compass },
   { name: 'Profile', path: '/profile', icon: User },
   { name: 'Presentation (.pptx)', path: '/presentation', icon: Presentation },
   { name: 'Complain & Request for Feature', path: '/feedback', icon: HelpCircle },
