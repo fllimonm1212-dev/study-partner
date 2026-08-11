@@ -74,10 +74,42 @@ export default function Groups() {
       memberships = mData || [];
 
       // Also check local storage for joined groups
-      let localJoined: string[] = [];
+      let localJoined: string[] = ['demo-group-1', 'demo-group-2', 'demo-group-3'];
       try {
-        localJoined = JSON.parse(localStorage.getItem(`joined_groups_${user.id}`) || '[]');
+        const stored = JSON.parse(localStorage.getItem(`joined_groups_${user.id}`) || '[]');
+        if (stored.length > 0) localJoined = [...new Set([...localJoined, ...stored])];
       } catch (e) {}
+
+      const DEFAULT_DEMO_GROUPS = [
+        {
+          id: 'demo-group-1',
+          name: 'HSC 2025 Science Squad 🧪',
+          description: 'Active study group for HSC 2025 Science students in Bangladesh. Daily discussion on Physics, Higher Math & Chemistry.',
+          created_by: 'demo-user-1',
+          created_at: new Date(Date.now() - 30 * 86400000).toISOString(),
+          member_count: 128
+        },
+        {
+          id: 'demo-group-2',
+          name: 'BUET Admission Dreamers 2026 ⚙️',
+          description: 'Targeting BUET / Engineering admission! Solving question banks, mock problems, and advanced calculus.',
+          created_by: 'demo-user-7',
+          created_at: new Date(Date.now() - 20 * 86400000).toISOString(),
+          member_count: 245
+        },
+        {
+          id: 'demo-group-3',
+          name: 'Physics & Math Problem Solvers BD 📐',
+          description: 'Share tough physics and higher math questions to get step-by-step solutions from study partners.',
+          created_by: 'demo-user-2',
+          created_at: new Date(Date.now() - 15 * 86400000).toISOString(),
+          member_count: 89
+        }
+      ];
+
+      const existingGroupIds = new Set(fetchedGroups.map(g => g.id));
+      const missingDemoGroups = DEFAULT_DEMO_GROUPS.filter(dg => !existingGroupIds.has(dg.id));
+      fetchedGroups = [...fetchedGroups, ...missingDemoGroups];
 
       const myGroupIds = new Set([...memberships.map(m => m.group_id), ...localJoined]);
       

@@ -3,6 +3,8 @@ import { Target, Star, Users, CheckCircle, Clock } from 'lucide-react';
 import { motion } from 'motion/react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
+import { DEFAULT_DEMO_CHALLENGES } from '../lib/demoDataSeeder';
+import { getDemoAccounts } from '../lib/demoAccounts';
 
 export default function Challenges() {
   const { user } = useAuth();
@@ -101,14 +103,44 @@ export default function Challenges() {
           }
         });
 
+        // Merge challenges list with default demo challenges
+        let allChallenges = challengesData || [];
+        const existingIds = new Set(allChallenges.map(c => c.id));
+        const missingDemos = DEFAULT_DEMO_CHALLENGES.filter(dc => !existingIds.has(dc.id));
+        allChallenges = [...allChallenges, ...missingDemos];
+
+        // Merge local demo progress
+        let allUserProgress = userProgress || [];
+        try {
+          const localProg: any[] = JSON.parse(localStorage.getItem(`demo_challenge_progress_${user.id}`) || '[]');
+          if (localProg.length > 0) {
+            const progIds = new Set(allUserProgress.map(p => p.challenge_id));
+            const missingProgs = localProg.filter(lp => !progIds.has(lp.challenge_id));
+            allUserProgress = [...allUserProgress, ...missingProgs];
+          }
+        } catch (e) {}
+
+        const demoAccs = getDemoAccounts();
+        const demoParticipantsSample = demoAccs.slice(0, 3).map(da => ({
+          profiles: {
+            id: da.id,
+            full_name: da.full_name,
+            avatar_url: da.avatar_url
+          }
+        }));
+
         // Merge data
-        const merged = (challengesData || []).map(challenge => {
-          const myProgress = (userProgress || []).find(p => p.challenge_id === challenge.id);
+        const merged = allChallenges.map(challenge => {
+          const myProgress = allUserProgress.find(p => p.challenge_id === challenge.id);
+          const topList = topParticipants[challenge.id] && topParticipants[challenge.id].length > 0
+            ? topParticipants[challenge.id]
+            : demoParticipantsSample;
+
           return {
             ...challenge,
             myProgress,
-            completedCount: completionCounts[challenge.id] || 0,
-            topParticipants: topParticipants[challenge.id] || [],
+            completedCount: (completionCounts[challenge.id] || 0) + (myProgress?.completed ? 1 : 0) + 12,
+            topParticipants: topList,
             hasJoined: !!myProgress
           };
         });

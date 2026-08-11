@@ -4,6 +4,7 @@ import { motion } from 'motion/react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { DEFAULT_DEMO_EXAMS } from '../lib/demoDataSeeder';
 
 export default function Exams() {
   const { user } = useAuth();
@@ -60,8 +61,23 @@ export default function Exams() {
           console.warn("Exam submissions table notice:", subsError);
         }
 
-        const validExams = examsData || [];
-        const validSubs = subsData || [];
+        let validExams = examsData || [];
+        let validSubs = subsData || [];
+
+        // Merge demo exams if DB is sparse
+        const dbExamIds = new Set(validExams.map(e => e.id));
+        const missingDemoExams = DEFAULT_DEMO_EXAMS.filter(de => !dbExamIds.has(de.id));
+        validExams = [...validExams, ...missingDemoExams];
+
+        // Merge demo submissions from localStorage
+        try {
+          const localSubs: any[] = JSON.parse(localStorage.getItem(`demo_exam_submissions_${user.id}`) || '[]');
+          if (localSubs.length > 0) {
+            const subIds = new Set(validSubs.map(s => s.id));
+            const extraLocalSubs = localSubs.filter(ls => !subIds.has(ls.id));
+            validSubs = [...validSubs, ...extraLocalSubs];
+          }
+        } catch (e) {}
 
         setExams(validExams);
         setSubmissions(validSubs);

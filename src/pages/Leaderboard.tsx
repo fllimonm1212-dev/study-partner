@@ -99,6 +99,28 @@ export default function Leaderboard() {
         }
 
         if (combinedProfiles) {
+          // Boost demo user in combinedProfiles if present
+          combinedProfiles = combinedProfiles.map(p => {
+            if (p.email === 'demo@studypartner.com' || (user?.email === 'demo@studypartner.com' && p.id === user.id)) {
+              return {
+                ...p,
+                full_name: 'Demo Student (Presenter)',
+                total_stars: Math.max(p.total_stars || 0, 420),
+                current_streak: Math.max(p.current_streak || 0, 14),
+                class_id: 'Class 10',
+                section: 'A'
+              };
+            }
+            return p;
+          });
+
+          // Re-sort after potential boost
+          combinedProfiles.sort((a, b) => {
+            const valA = sortBy === 'streak' ? (a.current_streak || 0) : (a.total_stars || 0);
+            const valB = sortBy === 'streak' ? (b.current_streak || 0) : (b.total_stars || 0);
+            return valB - valA;
+          });
+
           const formattedData = combinedProfiles.map((p, index) => {
             const name = p.full_name || p.email?.split('@')[0] || 'Unknown Student';
             const classLabel = p.class_id ? `${p.class_id}-${p.section || 'A'}` : 'N/A';

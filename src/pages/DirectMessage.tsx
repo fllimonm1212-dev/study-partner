@@ -339,7 +339,7 @@ export default function DirectMessage() {
                         ? "bg-indigo-500 text-white rounded-br-sm" 
                         : "bg-slate-800 text-slate-200 rounded-bl-sm border border-slate-700"
                     )}>
-                      {msg.type === 'text' && <p className="text-sm whitespace-pre-wrap break-words">{msg.content}</p>}
+                      {(msg.type === 'text' || !msg.type) && <p className="text-sm whitespace-pre-wrap break-words">{msg.content || msg.text}</p>}
                       {msg.type === 'image' && (
                         <div className="space-y-2">
                           <img 

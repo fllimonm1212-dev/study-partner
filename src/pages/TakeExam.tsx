@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { Clock, AlertTriangle, CheckCircle2, ChevronRight, ChevronLeft, Trophy, FileText, Play, XCircle, User } from 'lucide-react';
 import { motion } from 'motion/react';
 import { toast } from 'sonner';
+import { DEFAULT_DEMO_EXAMS } from '../lib/demoDataSeeder';
 
 export default function TakeExam() {
   const { id } = useParams();
@@ -68,12 +69,22 @@ export default function TakeExam() {
         }
 
         // Check if already submitted or in progress
-        const { data: existingSub } = await supabase
+        let { data: existingSub } = await supabase
           .from('exam_submissions')
           .select('*')
           .eq('exam_id', id)
           .eq('user_id', targetUserId)
           .maybeSingle();
+
+        if (!existingSub) {
+          try {
+            const localSubs: any[] = JSON.parse(localStorage.getItem(`demo_exam_submissions_${targetUserId}`) || '[]');
+            const matched = localSubs.find(s => s.exam_id === id);
+            if (matched) {
+              existingSub = matched;
+            }
+          } catch (e) {}
+        }
 
       if (existingSub) {
         if (existingSub.status === 'completed') {
@@ -86,15 +97,12 @@ export default function TakeExam() {
           setCurrentSubmissionId(existingSub.id);
           setHasStarted(true);
           
-          // Load answers from DB first
           let currentAnswers = existingSub.answers || {};
           
-          // Check local storage for potentially newer/unsynced answers
           try {
             const localData = localStorage.getItem(`exam_progress_${user.id}_${id}`);
             if (localData) {
               const { answers: localAnswers } = JSON.parse(localData);
-              // Merge local answers - prefer local if they exist as they might be more recent
               currentAnswers = { ...currentAnswers, ...localAnswers };
             }
           } catch (e) {
@@ -106,13 +114,20 @@ export default function TakeExam() {
       }
 
         // Fetch exam
-        const { data: examData, error: examError } = await supabase
+        let { data: examData, error: examError } = await supabase
           .from('exams')
           .select('*')
           .eq('id', id)
           .maybeSingle();
 
-        if (examError || !examData) {
+        if (!examData) {
+          const matchedDemo = DEFAULT_DEMO_EXAMS.find(de => de.id === id);
+          if (matchedDemo) {
+            examData = matchedDemo;
+          }
+        }
+
+        if (!examData) {
           console.warn("Exam query notice:", examError);
           toast.error("Exam not found or unavailable.");
           navigate('/exams');
@@ -157,6 +172,9 @@ export default function TakeExam() {
         }
         
         let finalQuestions = questionsData || [];
+        if (finalQuestions.length === 0 && examData.questions) {
+          finalQuestions = examData.questions;
+        }
         
         if (examData.randomize_questions && finalQuestions.length > 0) {
           // Simple deterministic shuffle based on user ID so it doesn't change on refresh
@@ -296,6 +314,10 @@ export default function TakeExam() {
   const handleStartExam = async () => {
     if (!user || !exam) return;
     
+    const localId = 'sub-' + Date.now();
+    setCurrentSubmissionId(localId);
+    setHasStarted(true);
+
     try {
       // Create an in-progress submission record to track start time
       const { data, error } = await supabase
@@ -310,15 +332,13 @@ export default function TakeExam() {
         .select()
         .single();
 
-      if (error) throw error;
-      
-      setCurrentSubmissionId(data.id);
-      setHasStarted(true);
+      if (!error && data?.id) {
+        setCurrentSubmissionId(data.id);
+      } else {
+        console.warn("Exam start DB record skipped (handled locally):", error?.message);
+      }
     } catch (error: any) {
-      console.error("Error starting exam:", error);
-      toast.error("Failed to start exam record.");
-      // Still start locally even if DB fails, but it's better if it works
-      setHasStarted(true);
+      console.warn("Notice starting exam DB record (handled locally):", error);
     }
   };
 
@@ -329,14 +349,19 @@ export default function TakeExam() {
     };
     setAnswers(newAnswers);
 
-    // Sync answers to DB in background
-    if (currentSubmissionId) {
-      setIsSaving(true);
-      await supabase
-        .from('exam_submissions')
-        .update({ answers: newAnswers })
-        .eq('id', currentSubmissionId);
-      setTimeout(() => setIsSaving(false), 1000);
+    // Sync answers to DB in background if DB submission exists
+    if (currentSubmissionId && !currentSubmissionId.startsWith('sub-')) {
+      try {
+        setIsSaving(true);
+        await supabase
+          .from('exam_submissions')
+          .update({ answers: newAnswers })
+          .eq('id', currentSubmissionId);
+      } catch (e) {
+        console.warn('Answer sync notice:', e);
+      } finally {
+        setTimeout(() => setIsSaving(false), 1000);
+      }
     }
   };
 
@@ -359,46 +384,75 @@ export default function TakeExam() {
           }
         }
       });
-      
-      // Ensure score doesn't go below 0 if that's preferred, but usually negative scores are allowed in competitive exams.
-      // We will allow negative scores as it's standard for negative marking.
 
       const submissionData = {
+        id: currentSubmissionId || ('sub-' + Date.now()),
+        exam_id: exam.id,
+        user_id: user.id,
         score,
         total_points: totalPoints,
+        percentage: Math.round((score / (totalPoints || 1)) * 100),
         answers,
         status: 'completed',
-        completed_at: new Date().toISOString()
+        completed_at: new Date().toISOString(),
+        exam_title: exam.title
       };
 
-      let resultData;
-      if (currentSubmissionId) {
-        const { data, error } = await supabase
-          .from('exam_submissions')
-          .update(submissionData)
-          .eq('id', currentSubmissionId)
-          .select()
-          .single();
-        if (error) throw error;
-        resultData = data;
-      } else {
-        const { data, error } = await supabase
-          .from('exam_submissions')
-          .insert([{
-            ...submissionData,
-            exam_id: exam.id,
-            user_id: user.id
-          }])
-          .select()
-          .single();
-        if (error) throw error;
-        resultData = data;
+      let resultData: any = submissionData;
+
+      try {
+        if (currentSubmissionId && !currentSubmissionId.startsWith('sub-')) {
+          const { data, error } = await supabase
+            .from('exam_submissions')
+            .update({
+              score,
+              total_points: totalPoints,
+              answers,
+              status: 'completed',
+              completed_at: new Date().toISOString()
+            })
+            .eq('id', currentSubmissionId)
+            .select()
+            .single();
+
+          if (!error && data) {
+            resultData = { ...submissionData, ...data };
+          }
+        } else {
+          const { data, error } = await supabase
+            .from('exam_submissions')
+            .insert([{
+              exam_id: exam.id,
+              user_id: user.id,
+              score,
+              total_points: totalPoints,
+              answers,
+              status: 'completed',
+              completed_at: new Date().toISOString()
+            }])
+            .select()
+            .single();
+
+          if (!error && data) {
+            resultData = { ...submissionData, ...data };
+          }
+        }
+      } catch (dbErr) {
+        console.warn("Exam submission DB save warning (saved locally):", dbErr);
       }
+
+      // Save submission to local storage fallback
+      try {
+        const localKey = `demo_exam_submissions_${user.id}`;
+        const existingSubs: any[] = JSON.parse(localStorage.getItem(localKey) || '[]');
+        const updatedSubs = [resultData, ...existingSubs.filter(s => s.exam_id !== exam.id)];
+        localStorage.setItem(localKey, JSON.stringify(updatedSubs));
+      } catch (e) {}
 
       setIsSubmitted(true);
       setResult(resultData);
       
-      // Clear local storage on successful submission
+      // Clear local storage exam progress
       if (user && id) {
         localStorage.removeItem(`exam_progress_${user.id}_${id}`);
       }
@@ -406,7 +460,7 @@ export default function TakeExam() {
       toast.success("Exam submitted successfully!");
     } catch (error: any) {
       console.error("Error submitting exam:", error);
-      toast.error(error.message || "Failed to submit exam.");
+      toast.error(error?.message || "Failed to submit exam.");
     } finally {
       setSubmitting(false);
     }

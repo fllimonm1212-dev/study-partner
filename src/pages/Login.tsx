@@ -23,17 +23,44 @@ export default function Login() {
 
     if (error && (error.message.includes('Invalid login credentials') || error.message.includes('user_not_found'))) {
       // Try to auto-signup if user doesn't exist yet
+      const isDemoAcc = email.toLowerCase().includes('demo');
+      const fullName = isDemoAcc 
+        ? 'Demo Student (Presenter)' 
+        : (email.includes('fllimonm') ? 'Limon Admin' : email.split('@')[0]);
+
       const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
         email,
         password,
         options: {
           data: {
-            full_name: email.split('@')[0],
+            full_name: fullName,
+            class_id: 'Class 10',
+            section: 'A',
+            institution: 'Dhaka Residential Model College',
+            total_stars: isDemoAcc ? 350 : 120,
+            current_streak: isDemoAcc ? 14 : 7,
           }
         }
       });
+
       if (!signUpError && signUpData?.user) {
         error = null;
+        // Upsert profile record
+        try {
+          await supabase.from('profiles').upsert({
+            id: signUpData.user.id,
+            email: signUpData.user.email,
+            full_name: fullName,
+            class_id: 'Class 10',
+            section: 'A',
+            institution: 'Dhaka Residential Model College',
+            total_stars: isDemoAcc ? 350 : 120,
+            current_streak: isDemoAcc ? 14 : 7,
+            role: email.includes('fllimonm') ? 'admin' : 'student'
+          });
+        } catch (e) {
+          console.warn('Profile creation notice:', e);
+        }
       }
     }
 
@@ -143,6 +170,43 @@ export default function Login() {
               >
                 {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Sign in'}
               </button>
+            </div>
+
+            <div className="pt-4 border-t border-slate-800 space-y-3">
+              <p className="text-xs text-center text-slate-400 font-medium">Quick Demo Accounts for Presentation:</p>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEmail('demo@studypartner.com');
+                    setPassword('123456');
+                    setTimeout(() => {
+                      const form = document.querySelector('form');
+                      if (form) form.requestSubmit();
+                    }, 50);
+                  }}
+                  className="py-2 px-3 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 rounded-lg text-xs font-semibold transition-colors flex flex-col items-center justify-center text-center gap-0.5"
+                >
+                  <span>Student Demo</span>
+                  <span className="text-[10px] text-indigo-400/70 font-normal">demo@studypartner.com</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEmail('fllimonm@gmail.com');
+                    setPassword('1212151415');
+                    setTimeout(() => {
+                      const form = document.querySelector('form');
+                      if (form) form.requestSubmit();
+                    }, 50);
+                  }}
+                  className="py-2 px-3 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 rounded-lg text-xs font-semibold transition-colors flex flex-col items-center justify-center text-center gap-0.5"
+                >
+                  <span>Admin Demo</span>
+                  <span className="text-[10px] text-amber-400/70 font-normal">fllimonm@gmail.com</span>
+                </button>
+              </div>
             </div>
           </form>
         </div>

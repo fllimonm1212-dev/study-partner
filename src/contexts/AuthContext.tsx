@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
+import { seedDemoDataForUser } from '../lib/demoDataSeeder';
 
 interface AuthContextType {
   session: Session | null;
@@ -24,53 +25,89 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (user?.id) {
+      seedDemoDataForUser(user.id, true);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    // Safety timeout: Ensure loading finishes within 2.5 seconds max
+    const timer = setTimeout(() => {
+      if (isMounted) {
+        setLoading(false);
+      }
+    }, 2500);
+
     const initAuth = async () => {
       try {
-        const { data: { session }, error } = await supabase.auth.getSession();
+        const { data, error } = await supabase.auth.getSession();
+        if (!isMounted) return;
+
         if (error) {
-          console.error('Session error:', error.message);
-          if (error.message.includes('Refresh Token Not Found')) {
-            // Clear local storage if refresh token is missing
-            for (let i = 0; i < localStorage.length; i++) {
-              const key = localStorage.key(i);
-              if (key && (key.startsWith('sb-') && key.endsWith('-auth-token'))) {
-                localStorage.removeItem(key);
+          console.warn('Session init notice:', error.message);
+          if (error.message?.includes('Refresh Token Not Found')) {
+            try {
+              for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key && key.startsWith('sb-') && key.endsWith('-auth-token')) {
+                  localStorage.removeItem(key);
+                }
               }
-            }
+            } catch (e) {}
           }
           setSession(null);
           setUser(null);
         } else {
-          setSession(session);
-          setUser(session?.user ?? null);
+          setSession(data.session);
+          setUser(data.session?.user ?? null);
         }
       } catch (err) {
-        console.error('Unexpected auth error:', err);
+        console.warn('Unexpected auth error during init:', err);
+        if (isMounted) {
+          setSession(null);
+          setUser(null);
+        }
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+          clearTimeout(timer);
+        }
       }
     };
 
     initAuth();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      console.log('Auth state change:', event, !!session);
-      
-      if (event === 'SIGNED_OUT') {
-        setSession(null);
-        setUser(null);
-      } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
-        setSession(session);
-        setUser(session?.user ?? null);
-      } else if (event === 'INITIAL_SESSION') {
-        setSession(session);
-        setUser(session?.user ?? null);
-      }
-      
-      setLoading(false);
-    });
+    let subscriptionObj: any = null;
+    try {
+      const { data } = supabase.auth.onAuthStateChange((event, newSession) => {
+        if (!isMounted) return;
+        
+        if (event === 'SIGNED_OUT') {
+          setSession(null);
+          setUser(null);
+        } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED' || event === 'INITIAL_SESSION') {
+          setSession(newSession);
+          setUser(newSession?.user ?? null);
+        }
 
-    return () => subscription.unsubscribe();
+        setLoading(false);
+        clearTimeout(timer);
+      });
+      subscriptionObj = data.subscription;
+    } catch (e) {
+      console.warn('onAuthStateChange setup error:', e);
+      setLoading(false);
+    }
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timer);
+      if (subscriptionObj) {
+        subscriptionObj.unsubscribe();
+      }
+    };
   }, []);
 
   const signOut = async () => {
