@@ -265,13 +265,13 @@ export default function AiFormulaNotes() {
 
       const resData = await response.json().catch(() => ({ success: false, error: 'সার্ভার থেকে প্রশ্নপত্রের তথ্য পাওয়া যায়নি।' }));
 
-      if (!response.ok || !resData.success) {
-        throw new Error(resData.error || 'AI প্রশ্ন তৈরিতে সমস্যা হয়েছে।');
+      if (!response.ok || !resData.success || !resData.data || !Array.isArray(resData.data.questions) || resData.data.questions.length === 0) {
+        throw new Error(resData.error || 'AI প্রশ্ন তৈরিতে সমস্যা হয়েছে। আবার চেষ্টা করুন।');
       }
 
       setMcqExamData(resData.data);
       setExamStatus('taking_exam');
-      setTimeLeft(resData.data.questions.length * 60); // 1 minute per question
+      setTimeLeft((resData.data.questions?.length || 10) * 60); // 1 minute per question
       setUserAnswers({});
       toast.success('PDF থেকে প্রশ্নপত্র তৈরি সম্পন্ন! এবার পরীক্ষা দিন।');
     } catch (err: any) {
@@ -297,7 +297,7 @@ export default function AiFormulaNotes() {
 
   // Submit Exam
   const handleSubmitExam = () => {
-    if (!mcqExamData) return;
+    if (!mcqExamData || !Array.isArray(mcqExamData.questions)) return;
 
     let correct = 0;
     let wrong = 0;
@@ -331,7 +331,7 @@ export default function AiFormulaNotes() {
 
   // Download PDF Questions & Solution Sheet
   const handleDownloadMcqPdf = () => {
-    if (!mcqExamData) return;
+    if (!mcqExamData || !Array.isArray(mcqExamData.questions)) return;
 
     try {
       const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
@@ -1180,7 +1180,7 @@ export default function AiFormulaNotes() {
                   {mcqExamData.subject}
                 </span>
                 <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
-                  {mcqExamData.questions.length} Questions
+                  {mcqExamData.questions?.length || 0} Questions
                 </span>
               </div>
               <h2 className="text-lg sm:text-2xl font-black text-white mt-1">
@@ -1222,7 +1222,7 @@ export default function AiFormulaNotes() {
                   onClick={() => {
                     setExamStatus('taking_exam');
                     setUserAnswers({});
-                    setTimeLeft(mcqExamData.questions.length * 60);
+                    setTimeLeft((mcqExamData.questions?.length || 10) * 60);
                   }}
                   className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-indigo-300 font-bold text-xs border border-slate-700 transition-all flex items-center gap-2 cursor-pointer"
                 >
